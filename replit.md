@@ -1,6 +1,6 @@
-# [Project name]
+# CP Judge & Visual Tracer
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+An interactive C++ workbench that runs solutions against built-in problems and turns a captured run into a step-by-step learning trace.
 
 ## Run & Operate
 
@@ -9,7 +9,7 @@ _Replace the heading above with the project's name, and this line with one sente
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- Required env: `DATABASE_URL` — Postgres connection string (only needed for future persistence)
 
 ## Stack
 
@@ -22,23 +22,32 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/cp-judge-tracer/src/pages/home.tsx` — editor, problem shelf, judge controls, and verdicts
+- `artifacts/cp-judge-tracer/src/pages/trace.tsx` — local trace playback UI
+- `artifacts/cp-judge-tracer/src/index.css` — shared visual theme and utility styles
+- `artifacts/api-server/src/lib/problems.ts` — built-in problem fixtures
+- `artifacts/api-server/src/lib/cpp-runner.ts` — real g++ compile/run process boundary
+- `artifacts/api-server/src/routes/` — health, problems, judge, and trace endpoints
+- `lib/api-spec/openapi.yaml` — source of truth for generated API hooks and schemas
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- The first MVP keeps built-in problem data in memory so the editor is immediately usable without a database setup step.
+- Judge execution uses debug-friendly compiler flags (`-g -O0 -fno-omit-frame-pointer`) and bounds subprocess output/time.
+- Trace payloads are captured server-side and played locally in the browser for instant scrubbing.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+Users can select a built-in C++ problem, edit the starter solution, run it against multiple cases, inspect verdicts and compiler/runtime feedback, and open a captured execution trace with source highlighting, timeline controls, locals, call stack, and data-structure panels.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+The user prefers the warm cream, dark frame, bold outline, coral/teal/blue reference theme shown in the attached UI references.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Artifact Vite builds require `PORT` and `BASE_PATH`; workflow runs inject them automatically.
+- Regenerate API clients with `pnpm --filter @workspace/api-spec run codegen` after changing `lib/api-spec/openapi.yaml`.
 
 ## Pointers
 

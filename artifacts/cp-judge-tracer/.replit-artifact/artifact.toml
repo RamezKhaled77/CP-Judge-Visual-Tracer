@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "CP Judge & Visual Tracer"
+description = "A focused competitive programming workspace where users run C++ against sample tests and inspect execution step-by-step with a debugger-style trace player."
+version = "1.0.0"
+id = "artifacts/cp-judge-tracer"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21424
+
+[services.development]
+run = "pnpm --filter @workspace/cp-judge-tracer run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/cp-judge-tracer", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/cp-judge-tracer/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21424"
+BASE_PATH = "/"

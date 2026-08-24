@@ -1,0 +1,141 @@
+# Project: CP Judge & Visual Tracer (C++)
+
+Build a web app for competitive programmers and problem solvers. The user pastes C++ code for a problem, and the app does two things:
+
+1. **Judge mode**: runs the code against test cases and tells the user if the solution is correct (Accepted / Wrong Answer / Time Limit Exceeded / Runtime Error / Compile Error).
+2. **Trace mode**: runs the code step-by-step and visualizes execution — variable changes, the call stack (including recursion), and data structures (arrays, vectors, pointers) — like a debugger built for learning, not just running.
+
+This is a real execution engine, not a toy interpreter. Compile real C++ with `g++`, execute it, and extract state using GDB. Do not simulate or fake execution.
+
+---
+
+## Tech stack
+
+- **Frontend**: React + Vite, Monaco Editor (the VS Code editor component) for the code input.
+- **Backend**: Node.js (Express) or Python (FastAPI) — pick FastAPI, since Python has mature GDB scripting via `pygdbmi`.
+- **Sandbox/runner**: Docker. Every submission compiles and runs inside a short-lived, resource-limited container.
+- **Compiler**: `g++` with `-g -O0 -fno-omit-frame-pointer` (debug symbols on, no optimization, so line numbers and variables map cleanly to source).
+- **Tracer**: GDB in Machine Interface mode (`gdb --interpreter=mi2`), driven via `pygdbmi`, stepping line-by-line and dumping locals, call stack, and memory at each step.
+- **Job handling**: a simple queue (in-process asyncio queue is fine for MVP; Redis/BullMQ later if needed) since compiling and stepping aren't instant.
+- **Storage**: SQLite for MVP (problems, test cases, submissions). No need for a heavier DB yet.
+
+---
+
+## Core user flow
+
+1. User opens the app, sees a code editor (pre-filled with a simple starter template) and an input box for a problem (or picks from a small built-in problem list).
+2. User pastes/writes C++ code and clicks **Run**.
+3. Backend compiles the code in an isolated Docker container.
+   - Compile error → show the raw compiler error, stop here.
+4. If compiled successfully, backend runs the binary against each test case's stdin, compares actual vs expected stdout.
+   - Show verdict per test case: **Accepted**, **Wrong Answer** (with diff of expected vs actual), **Time Limit Exceeded**, **Runtime Error** (with signal/exit code).
+5. User clicks **Visualize** (using the *first* test case's input, or a custom input they type in).
+6. Backend re-runs the same binary under GDB MI, stepping through execution, capturing a full trace as JSON: for each step, the current line number, local variables and their values, the call stack (function names + line at each frame), and any array/vector contents in scope.
+7. Frontend renders this trace as an interactive player:
+   - Step forward / back / play / pause controls, plus a scrubber.
+   - Current line highlighted in a read-only code view.
+   - Variables panel showing current values, highlighting what just changed.
+   - Call stack panel showing the frame stack growing/shrinking (this is what makes recursion visible — e.g. factorial or Fibonacci recursion should visibly show frames stacking up and popping off).
+   - Arrays/vectors shown as a row of boxes with indices, updating live as the trace steps forward, with index pointers (like `i`, `j`) shown under the relevant box when a variable references that index.
+
+---
+
+## Judge details
+
+- Each "problem" has: a name/description, one or more test cases (stdin + expected stdout), and time/memory limits (defaults: 2s, 256MB).
+- Ship the MVP with **3-5 built-in sample problems** covering different skill levels (e.g. "Sum of two numbers", "Reverse an array", "Fibonacci with recursion", "Binary search", "Two-sum with a hashmap") so the app is usable without needing a problem-authoring UI yet.
+- Comparison should trim trailing whitespace/newlines per line but otherwise be exact.
+- Verdicts: `AC` (Accepted), `WA` (Wrong Answer), `TLE` (Time Limit Exceeded), `RE` (Runtime Error), `CE` (Compile Error).
+- On `WA`, show a simple side-by-side diff of expected vs actual output for the failing test case.
+
+---
+
+## Tracer details (the hard, valuable part)
+
+- Compile with debug symbols (`-g -O0`).
+- Launch under `gdb --interpreter=mi2`, drive it programmatically (Python `pygdbmi` recommended) doing the equivalent of repeated `step`/`next` commands.
+- At each step, capture:
+  - Current source line number and function name.
+  - Local variables in the current frame (name, type, value) — use GDB's `-var-create`/`-var-list-children` or `info locals` equivalents.
+  - Full call stack (`-stack-list-frames`), so recursive calls show as multiple stacked frames.
+  - For arrays, `std::vector`, and raw pointers into arrays: resolve and include their contents as a list of values (GDB has built-in STL pretty-printers — use them; don't hand-roll STL introspection).
+- Cap the trace: if the program has more than, say, 2000 steps, cut off and tell the user the trace was truncated (protects against infinite loops or huge inputs during trace mode — use a *smaller* input for tracing than for judging if needed, and let the user provide a custom small input specifically for visualization).
+- Output the whole trace as a single JSON array up front (don't stream step-by-step from the backend — capture everything server-side once, send it as one payload, and let the frontend "player" step through it locally). This keeps the frontend simple and the playback instant/scrubbable.
+
+Example trace step shape:
+```json
+{
+  "step": 4,
+  "line": 12,
+  "function": "fib",
+  "locals": [{ "name": "n", "type": "int", "value": "3" }],
+  "stack": [
+    { "function": "fib", "line": 12 },
+    { "function": "fib", "line": 12 },
+    { "function": "main", "line": 20 }
+  ],
+  "arrays": [
+    { "name": "memo", "type": "int[10]", "values": [0, 1, 1, -1, -1, -1, -1, -1, -1, -1] }
+  ]
+}
+```
+
+---
+
+## Sandboxing & security (do not skip this)
+
+The app compiles and runs arbitrary user-submitted C++. Treat every submission as hostile.
+
+- Run compilation and execution inside a Docker container per submission, not on the host.
+- No network access inside the container (`--network none`).
+- Hard memory limit (e.g. `--memory=256m`) and CPU limit (`--cpus=1`).
+- Wall-clock timeout on both compile and run steps (e.g. `timeout 10s` for compile, `timeout 2s`/limit-defined for run) — kill and report TLE if exceeded.
+- Run the compiled binary as a non-root, unprivileged user inside the container.
+- Limit output size (a program that prints gigabytes of output should be killed, not buffered into memory).
+- Destroy the container after each run; don't reuse containers across submissions.
+- For GDB tracing, apply the same sandboxing — GDB is also running arbitrary code under the hood.
+
+---
+
+## API endpoints (backend)
+
+- `POST /api/submissions` — body: `{ code, problem_id }` → compiles, runs against all test cases, returns verdicts.
+- `POST /api/trace` — body: `{ code, input }` → compiles, runs under GDB, returns the full trace JSON.
+- `GET /api/problems` — list built-in problems.
+- `GET /api/problems/:id` — problem detail + test cases (public ones only, not hidden edge cases if any).
+
+---
+
+## Frontend pages/components
+
+- **Editor page**: Monaco editor, problem picker/description panel, "Run" and "Visualize" buttons, verdict panel below.
+- **Trace player** (shown after clicking Visualize): split view — code on the left with current line highlighted, right side has tabs/panels for Variables, Call Stack, and Data Structures. Playback controls (step back, step forward, play/pause, speed, scrubber) below or above.
+- Keep it clean and functional over decorative — this is a tool, prioritize clarity of state over visual flourish.
+
+---
+
+## Build order (please build in this order, MVP first)
+
+1. Project scaffold: React frontend + FastAPI backend, basic "hello world" round trip.
+2. Docker sandbox: an endpoint that compiles and runs a fixed hello-world C++ snippet safely, returns stdout. Prove the sandbox works before anything else.
+3. Judge: extend to accept arbitrary user code + a problem's test cases, return verdicts (AC/WA/TLE/RE/CE). Add the 3-5 built-in problems.
+4. Tracer backend: get GDB MI stepping working end-to-end for one simple non-recursive program (e.g. a loop summing an array), producing the JSON trace shape above. Test this thoroughly before building UI for it.
+5. Trace player UI: step controls, current-line highlight, variables panel, using the JSON from step 4.
+6. Call stack panel: extend the UI to show the frame stack, and test specifically with a recursive problem (factorial/Fibonacci) to confirm stacking/unstacking renders correctly.
+7. Data structure panel: array/vector visualization as boxes with index pointers.
+8. Polish: loading states, error handling for compile/runtime errors surfaced clearly in the UI, responsive layout.
+
+Stretch goals (only after the above is solid): user accounts, problem authoring UI, sharing a trace via link, support for more languages, editorial/hints, submission history.
+
+---
+
+## Non-goals for now
+
+- No support for languages other than C++.
+- No multi-user judging/leaderboards/contests.
+- No mobile app — responsive web is enough.
+- No custom problem upload UI yet — built-in problems only for MVP.
+
+---
+
+Please scaffold the repository with this structure, set up the Docker sandbox first and prove it works with a trivial compile+run before building anything else, and confirm the GDB tracing approach works on a simple test program before building the trace UI around it.

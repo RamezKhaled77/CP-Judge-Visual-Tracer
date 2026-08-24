@@ -10,6 +10,12 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: problems
+    description: Built-in competitive programming problems
+  - name: judge
+    description: C++ compilation and judging
+  - name: trace
+    description: GDB execution traces
 paths:
   /healthz:
     get:
@@ -24,6 +30,76 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /problems:
+    get:
+      operationId: listProblems
+      tags: [problems]
+      summary: List built-in problems
+      responses:
+        "200":
+          description: Built-in problems
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Problem"
+  /problems/{problemId}:
+    get:
+      operationId: getProblem
+      tags: [problems]
+      summary: Get a built-in problem
+      parameters:
+        - name: problemId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Problem details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "404":
+          description: Problem not found
+  /submissions:
+    post:
+      operationId: createSubmission
+      tags: [judge]
+      summary: Compile and judge C++ code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmissionInput"
+      responses:
+        "200":
+          description: Judge result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmissionResult"
+  /trace:
+    post:
+      operationId: createTrace
+      tags: [trace]
+      summary: Run C++ code and capture a debugger trace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TraceInput"
+      responses:
+        "200":
+          description: Execution trace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TraceResult"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +109,103 @@ components:
           type: string
       required:
         - status
+    ProblemTestCase:
+      type: object
+      properties:
+        id: { type: string }
+        input: { type: string }
+        expectedOutput: { type: string }
+      required: [id, input, expectedOutput]
+    Problem:
+      type: object
+      properties:
+        id: { type: string }
+        title: { type: string }
+        difficulty: { type: string }
+        description: { type: string }
+        starterCode: { type: string }
+        testCases:
+          type: array
+          items: { $ref: "#/components/schemas/ProblemTestCase" }
+      required: [id, title, difficulty, description, starterCode, testCases]
+    SubmissionInput:
+      type: object
+      properties:
+        code: { type: string, minLength: 1 }
+        problemId: { type: string, minLength: 1 }
+      required: [code, problemId]
+    TestCaseResult:
+      type: object
+      properties:
+        id: { type: string }
+        verdict: { type: string }
+        actualOutput: { type: string }
+        expectedOutput: { type: string }
+        runtimeMs: { type: number }
+        error: { type: ["string", "null"] }
+      required: [id, verdict, actualOutput, expectedOutput, runtimeMs, error]
+    SubmissionResult:
+      type: object
+      properties:
+        verdict: { type: string }
+        totalRuntimeMs: { type: number }
+        tests:
+          type: array
+          items: { $ref: "#/components/schemas/TestCaseResult" }
+        compileError: { type: ["string", "null"] }
+      required: [verdict, totalRuntimeMs, tests, compileError]
+    TraceInput:
+      type: object
+      properties:
+        code: { type: string, minLength: 1 }
+        input: { type: string }
+      required: [code, input]
+    TraceLocal:
+      type: object
+      properties:
+        name: { type: string }
+        type: { type: string }
+        value: { type: string }
+      required: [name, type, value]
+    TraceFrame:
+      type: object
+      properties:
+        function: { type: string }
+        line: { type: number }
+      required: [function, line]
+    TraceArray:
+      type: object
+      properties:
+        name: { type: string }
+        type: { type: string }
+        values:
+          type: array
+          items: { type: string }
+      required: [name, type, values]
+    TraceStep:
+      type: object
+      properties:
+        step: { type: number }
+        line: { type: number }
+        function: { type: string }
+        locals:
+          type: array
+          items: { $ref: "#/components/schemas/TraceLocal" }
+        stack:
+          type: array
+          items: { $ref: "#/components/schemas/TraceFrame" }
+        arrays:
+          type: array
+          items: { $ref: "#/components/schemas/TraceArray" }
+      required: [step, line, function, locals, stack, arrays]
+    TraceResult:
+      type: object
+      properties:
+        trace:
+          type: array
+          items: { $ref: "#/components/schemas/TraceStep" }
+        source: { type: string }
+        truncated: { type: boolean }
+        error: { type: ["string", "null"] }
+      required: [trace, source, truncated, error]
 
