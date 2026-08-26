@@ -1,0 +1,66 @@
+# Fix: Execution tracer is not tracing real execution
+
+## The bug
+
+I tested the tracer on a recursive `fib(n)` C++ program and the trace is wrong. Here's the exact evidence:
+
+For this program:
+```cpp
+#include <bits/stdc++.h>
+using namespace std;
+
+int fib(int n) {
+  if (n <= 1) return n;
+  return fib(n - 1) + fib(n - 2);
+}
+
+int main() {
+  int n;
+  cin >> n;
+  cout << fib(n) << "\n";
+}
+```
+
+With input `n = 6`, the trace produced exactly **10 steps**, visiting lines `2, 4, 5, 6, 7, 9, 10, 11, 12, 13` — in that order, once each. That is every non-blank line in the file, top to bottom, visited exactly once.
+
+That is not what real execution of `fib(6)` looks like. A correct trace should:
+- Revisit line 5 and line 6 many times (once per recursive call — `fib(6)` alone makes 15 calls to `fib`).
+- Jump between `main` and `fib` repeatedly, and between different active `fib` frames, not walk the file forward once.
+- Never touch line 2 (`using namespace std;`) or line 7 (a closing `}` with no executable content) as "steps" at all.
+
+Three specific symptoms, for reference while debugging:
+
+1. **Call stack stays at 1 frame (`main`) for the entire trace.** It should grow to multiple stacked `fib` frames during recursion and shrink back down as calls return.
+2. **Function attribution is wrong.** E.g. one step shows `LINE 5 / MAIN` even though line 5 (`if (n <= 1) return n;`) is physically inside `fib`, not `main`. The labeled function should always match whatever frame GDB reports as current.
+3. **The Locals panel lists `fib` itself as a local variable** (`fib: int`), alongside `n`. A function name should never appear as a local.
+
+## What this means
+
+All three symptoms together strongly suggest the trace is **not actually driven by GDB's live process stepping**. It looks like either:
+- a mock/fallback trace generator that walks the source text line-by-line and never got removed/replaced, or
+- GDB is being invoked but failing silently (bad path, wrong binary, MI parsing error, timeout) and the code is falling back to something synthetic instead of surfacing the error, or
+- the locals/stack data is being parsed from the source code (e.g. regex over the file) instead of from GDB's actual `-stack-list-frames` / `-stack-list-variables` responses.
+
+## What to fix
+
+1. **Find and remove any fallback/mock tracing path.** If GDB fails for any reason, the API should return an explicit error (e.g. `{ "error": "trace failed", "detail": "..." }`) — never silently substitute a fake trace. This is the most important fix: right now a broken tracer is indistinguishable from a working one in the UI, which is dangerous for a tool whose whole point is showing real execution.
+
+2. **Verify GDB is actually being launched and driven correctly:**
+   - Confirm the binary is compiled with `-g -O0` and GDB is pointed at the correct compiled binary path (not source).
+   - Confirm the step loop issues `-exec-step` (steps *into* function calls) and not `-exec-next` (steps *over* them) — `next` would explain the call stack never growing, though it wouldn't explain the file-order walk on its own, so check both.
+   - Log the raw GDB MI output (`*stopped`, `-stack-list-frames`, `-stack-list-variables --simple-values`) for this exact `fib.cpp` run to a file, and confirm each step's line/frame comes from that live output — not from any static analysis of the source text.
+   - Confirm the loop actually terminates on program exit (`*stopped,reason="exited-normally"`), not after a fixed number of steps or fixed number of source lines.
+
+3. **Fix call stack construction.** Each trace step must pull the current frame list from `-stack-list-frames` at that exact point in execution, so recursive calls show multiple `fib` frames stacked on top of `main`, and the stack shrinks as each call returns.
+
+4. **Fix function/line attribution.** The function name shown for a step must come from the current GDB frame (`frame.func`), not be inferred or hardcoded — it must always match the frame that line physically belongs to.
+
+5. **Fix locals extraction.** Locals must come only from `-stack-list-variables --simple-values` (or equivalent) for the current frame — never from parsing the source declarations. A function's own name must never appear in its locals list. Verify this by checking that `n` is the only local ever shown for `fib`, and that `main`'s locals only ever include `n` declared inside `main`.
+
+6. **After fixing, re-test with this exact `fib.cpp` file and `n = 6` input** and confirm:
+   - Step count is well over 10 (expect somewhere around 30–40+ steps for the full recursive tree, depending on exact stepping granularity).
+   - The call stack visibly grows past 1 frame and shows nested `fib` calls stacking up.
+   - Every step's function label matches the line's actual containing function.
+   - No function names appear in any locals list.
+
+Please walk through the tracer backend code, identify which of the causes above is actually happening (check for a mock path first — that's the most likely culprit given how clean the 10-line pattern is), fix it, and re-run the `fib.cpp` test case above to confirm the trace now reflects real recursive execution before touching anything else.

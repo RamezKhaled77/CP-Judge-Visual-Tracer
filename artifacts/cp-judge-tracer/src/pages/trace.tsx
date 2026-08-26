@@ -64,11 +64,15 @@ function SourcePanel({ source, activeLine }: { source: string; activeLine: numbe
   );
 }
 
-function LocalsPanel({ locals }: { locals: TraceLocal[] }) {
+function LocalsPanel({ locals, previousLocals }: { locals: TraceLocal[]; previousLocals: TraceLocal[] }) {
+  const previous = new Map(previousLocals.map((local) => [local.name, local.value]));
   return (
     <section className="min-w-0 border-b-2 border-[var(--ink)] bg-[#f7f1e4] p-4 xl:border-b-0 xl:border-r-2">
       <div className="mb-3 flex items-center justify-between"><div className="flex items-center gap-2"><Braces size={15} className="text-[#e66f5c]" /><p className="font-mono text-[10px] uppercase tracking-[0.15em]">locals</p></div><span className="font-mono text-[9px] text-[var(--ink-soft)]">{locals.length} vars</span></div>
-      {locals.length === 0 ? <p className="rounded border border-dashed border-[#b7aa96] p-3 text-xs text-[var(--ink-soft)]">No local values at this line.</p> : <div className="space-y-2">{locals.map((local) => <div key={local.name} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-[6px] border border-[#cbbfac] bg-[#eee5d6] px-2.5 py-2"><div className="min-w-0"><p className="truncate font-mono text-[11px] font-medium">{local.name}</p><p className="truncate font-mono text-[9px] text-[var(--ink-soft)]">{local.type}</p></div><p className="max-w-[110px] truncate rounded bg-[#f2cc68] px-1.5 py-0.5 font-mono text-[11px]" data-testid={`text-local-${local.name}`}>{local.value}</p></div>)}</div>}
+      {locals.length === 0 ? <p className="rounded border border-dashed border-[#b7aa96] p-3 text-xs text-[var(--ink-soft)]">No local values at this line.</p> : <div className="space-y-2">{locals.map((local) => {
+        const changed = previous.has(local.name) && previous.get(local.name) !== local.value;
+        return <div key={local.name} className={`grid grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-[6px] border px-2.5 py-2 transition-colors ${changed ? "border-[var(--ink)] bg-[#f2cc68]" : "border-[#cbbfac] bg-[#eee5d6]"}`}><div className="min-w-0"><p className="truncate font-mono text-[11px] font-medium">{local.name}</p><p className="truncate font-mono text-[9px] text-[var(--ink-soft)]">{local.type}</p></div><div className="flex items-center gap-1.5"><p className="max-w-[110px] truncate rounded bg-[#f7f1e4] px-1.5 py-0.5 font-mono text-[11px]" data-testid={`text-local-${local.name}`}>{local.value}</p>{changed && <span className="font-mono text-[8px] uppercase tracking-[0.08em]">changed</span>}</div></div>;
+      })}</div>}
     </section>
   );
 }
@@ -159,7 +163,7 @@ export default function Trace() {
               <div className="flex min-h-0 flex-col xl:flex-row">
                 <SourcePanel source={source} activeLine={current?.line ?? 0} />
                 <div className="grid min-w-0 flex-1 grid-cols-1 bg-[#f7f1e4] sm:grid-cols-2 xl:block xl:w-[370px] xl:flex-none">
-                  <LocalsPanel locals={current?.locals ?? []} />
+                  <LocalsPanel locals={current?.locals ?? []} previousLocals={traceResult.trace[activeStep - 1]?.locals ?? []} />
                   <StackPanel stack={current?.stack ?? []} />
                 </div>
               </div>
