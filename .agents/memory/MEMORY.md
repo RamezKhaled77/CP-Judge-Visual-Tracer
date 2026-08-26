@@ -1,1 +1,2 @@
 - [OpenAPI integer compatibility](openapi-zod-version.md) — integer schemas currently generate an incompatible zod.int() call; verify versions before adding them.
+- [GDB MI tracing](gdb-tracing.md) — run the inferior with console input redirection; parse live frames and locals without synthetic fallback.

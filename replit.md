@@ -34,7 +34,7 @@ An interactive C++ workbench that runs solutions against built-in problems and t
 
 - The first MVP keeps built-in problem data in memory so the editor is immediately usable without a database setup step.
 - Judge execution uses debug-friendly compiler flags (`-g -O0 -fno-omit-frame-pointer`) and bounds subprocess output/time.
-- Trace payloads are captured server-side and played locally in the browser for instant scrubbing.
+- Trace payloads are captured server-side by an interactive GDB MI session and played locally in the browser for instant scrubbing.
 
 ## Product
 

@@ -170,7 +170,7 @@ function miFrames(record: string) {
 }
 
 function miVariables(record: string) {
-  return [...record.matchAll(/\{name="((?:\\.|[^"])*)",type="((?:\\.|[^"])*)",value="((?:\\.|[^"])*)"\}/g)]
+  return [...record.matchAll(/\{name="((?:\\.|[^"])*)"(?:,arg="(?:\\.|[^"]*)")?,type="((?:\\.|[^"])*)",value="((?:\\.|[^"])*)"\}/g)]
     .map((match) => ({
       name: match[1].replace(/\\"/g, '"'),
       type: match[2].replace(/\\"/g, '"'),
@@ -232,7 +232,11 @@ export async function traceWithGdb(code: string, input: string, maxSteps = 2000)
         return;
       }
       if (!frame) {
-        void finish("GDB stopped without a current source frame.");
+        if (reason === "end-stepping-range") {
+          send("-exec-step", "setup");
+        } else {
+          void finish(`GDB stopped without a current source frame (reason: ${reason || "unknown"}).`);
+        }
         return;
       }
       current = frame;
@@ -284,8 +288,7 @@ export async function traceWithGdb(code: string, input: string, maxSteps = 2000)
     send("-gdb-set pagination off", "setup");
     send("-gdb-set confirm off", "setup");
     send('-interpreter-exec console "set step-mode off"', "setup");
-    send(`-inferior-tty-set ${inputPath}`, "setup");
     send("-break-insert main", "setup");
-    send("-exec-run", "setup");
+    send(`-interpreter-exec console "run < ${inputPath}"`, "setup");
   });
 }
