@@ -1,20 +1,24 @@
-// Export your models here. Add one export per file
-// export * from "./posts";
-//
-// Each model/table should ideally be split into different files.
-// Each model/table should define a Drizzle table, insert schema, and types:
-//
-//   import { pgTable, text, serial } from "drizzle-orm/pg-core";
-//   import { createInsertSchema } from "drizzle-zod";
-//   import { z } from "zod/v4";
-//
-//   export const postsTable = pgTable("posts", {
-//     id: serial("id").primaryKey(),
-//     title: text("title").notNull(),
-//   });
-//
-//   export const insertPostSchema = createInsertSchema(postsTable).omit({ id: true });
-//   export type InsertPost = z.infer<typeof insertPostSchema>;
-//   export type Post = typeof postsTable.$inferSelect;
+import { pgTable, text, jsonb, integer } from "drizzle-orm/pg-core";
 
-export {}
+// Built-in problems are persisted here so they can be edited / extended at
+// runtime and so each problem can carry its own resource limits (item #4).
+// The API keeps limits internal-only (see lib/problem-repo.ts); the public
+// Problem shape exposed over the wire does NOT include the limit columns.
+export const problemsTable = pgTable("problems", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  difficulty: text("difficulty").notNull(),
+  description: text("description").notNull(),
+  starterCode: text("starter_code").notNull(),
+  testCases: jsonb("test_cases")
+    .$type<{ id: string; input: string; expectedOutput: string }[]>()
+    .notNull(),
+  // Per-problem limits are optional; a NULL means "use the env default".
+  timeLimitMs: integer("time_limit_ms"),
+  compileTimeoutMs: integer("compile_timeout_ms"),
+  maxTraceSteps: integer("max_trace_steps"),
+});
+
+export type InsertProblem = typeof problemsTable.$inferInsert;
+export type Problem = typeof problemsTable.$inferSelect;
+

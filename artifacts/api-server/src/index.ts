@@ -1,6 +1,13 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 
+// Availability safety net: a stray async failure (e.g. an fs race during
+// sandbox teardown) must take down one request, not the whole server.
+// Uncaught exceptions are still fatal by design.
+process.on("unhandledRejection", (reason) => {
+  logger.error({ err: reason }, "Unhandled promise rejection");
+});
+
 const rawPort = process.env["PORT"];
 
 if (!rawPort) {
