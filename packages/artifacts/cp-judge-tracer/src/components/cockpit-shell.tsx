@@ -14,6 +14,8 @@ import {
 
 type CockpitShellProps = {
   children: ReactNode;
+  specimenIndex?: number;
+  specimenTotal?: number;
 };
 
 const STORAGE_KEY = "cplab.sidebar.collapsed";
@@ -27,7 +29,7 @@ function readCollapsed(): boolean {
   }
 }
 
-export function CockpitShell({ children }: CockpitShellProps) {
+export function CockpitShell({ children, specimenIndex = 1, specimenTotal = 1 }: CockpitShellProps) {
   const [location] = useLocation();
   const isTrace = location === "/trace";
 
@@ -196,8 +198,11 @@ export function CockpitShell({ children }: CockpitShellProps) {
                 <Gauge size={14} className="text-[#258b88]" />
                 <span>ready to inspect</span>
               </div>
-              <span className="flex items-center gap-2 rounded-full border-2 border-[var(--ink)] bg-[#f2cc68] px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.1em]">
-                <Activity size={12} /> 01 / 01
+              <span
+                className="flex items-center gap-2 rounded-full border-2 border-[var(--ink)] bg-[#f2cc68] px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.1em]"
+                title={`Specimen ${specimenIndex} of ${specimenTotal}`}
+              >
+                <Activity size={12} /> {String(specimenIndex).padStart(2, "0")} / {String(specimenTotal).padStart(2, "0")}
               </span>
             </div>
           </header>
