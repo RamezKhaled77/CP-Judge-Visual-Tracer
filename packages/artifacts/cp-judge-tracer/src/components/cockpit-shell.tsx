@@ -72,7 +72,7 @@ export function CockpitShell({ children, specimenIndex = 1, specimenTotal = 1 }:
         <aside
           data-testid="sidebar"
           aria-label="workspace navigation"
-          className={`relative z-20 hidden shrink-0 flex-col bg-[#1d3034] text-[#f7f1e4] transition-[width] duration-300 ease-in-out md:flex ${collapsed ? "w-[76px]" : "w-[238px]"}`}
+          className={`relative z-20 hidden shrink-0 flex-col bg-[#1d3034] text-[#f7f1e4] transition-[width] duration-200 ease-in-out md:flex ${collapsed ? "w-[76px]" : "w-[238px]"}`}
         >
           {/* Collapse / expand toggle */}
           <button
@@ -84,16 +84,16 @@ export function CockpitShell({ children, specimenIndex = 1, specimenTotal = 1 }:
             data-testid="sidebar-toggle"
             className="absolute -right-4 top-[52px] z-40 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border-2 border-[#0e1c20] bg-[#f27f6a] text-[#18272b] shadow-[0_8px_18px_rgba(0,0,0,0.38)] transition-all duration-200 hover:scale-110 hover:bg-[#ff8a74] hover:shadow-[0_10px_22px_rgba(0,0,0,0.44)] active:scale-95"
           >
-            <span
-              className={`flex transition-transform duration-300 ease-in-out ${collapsed ? "rotate-180" : "rotate-0"}`}
-            >
+             <span
+               className={`flex transition-transform duration-200 ease-in-out ${collapsed ? "rotate-180" : "rotate-0"}`}
+             >
               <ChevronsLeft size={16} strokeWidth={2.75} />
             </span>
           </button>
 
           {/* Brand */}
           <div
-            className={`border-b border-[#3e5558] transition-all duration-300 ease-in-out ${collapsed ? "flex items-center justify-center px-0 py-6" : "px-6 pb-6 pt-7"}`}
+            className={`border-b border-[#3e5558] transition-all duration-200 ease-in-out ${collapsed ? "flex items-center justify-center px-0 py-6" : "px-6 pb-6 pt-7"}`}
           >
             <Link
               href="/"
@@ -104,7 +104,7 @@ export function CockpitShell({ children, specimenIndex = 1, specimenTotal = 1 }:
                 <TerminalSquare size={19} strokeWidth={2.5} />
               </span>
               <span
-                className={`overflow-hidden text-clip transition-all duration-300 ease-in-out ${collapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}
+                className={`overflow-hidden text-clip transition-all duration-200 ease-in-out ${collapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}
               >
                 <span className="block font-display text-[19px] font-bold tracking-[-0.04em] text-[#fbf4e7]">
                   CP / LAB
@@ -117,14 +117,16 @@ export function CockpitShell({ children, specimenIndex = 1, specimenTotal = 1 }:
           </div>
 
           {/* Workspace nav */}
-          <div className={`flex flex-1 flex-col py-5 transition-[padding] duration-300 ease-in-out ${collapsed ? "px-0" : "px-3"}`}>
-            {collapsed ? (
-              <div className="mx-2 mb-4 border-t border-[#3e5558]" />
-            ) : (
+          <div className={`flex flex-1 flex-col py-5 transition-[padding] duration-200 ease-in-out ${collapsed ? "px-0" : "px-3"}`}>
+            {/* Workspace label (expanded) / divider (collapsed) — cross-faded, never hard-swapped */}
+            <div className={`overflow-hidden transition-all duration-200 ease-in-out ${collapsed ? "max-h-0 opacity-0" : "max-h-[40px] opacity-100"}`}>
               <p className="px-3 pb-2 font-mono text-[9px] uppercase tracking-[0.2em] text-[#77918f]">
                 Workspace
               </p>
-            )}
+            </div>
+            <div className={`overflow-hidden transition-all duration-200 ease-in-out ${collapsed ? "max-h-[24px] opacity-100" : "max-h-0 opacity-0"}`}>
+              <div className="mx-2 mb-4 border-t border-[#3e5558]" />
+            </div>
 
             <nav className="flex flex-col gap-1">
               {navItems.map((item) => (
@@ -138,7 +140,7 @@ export function CockpitShell({ children, specimenIndex = 1, specimenTotal = 1 }:
                     <item.icon size={17} />
                   </span>
                   <span
-                    className={`overflow-hidden text-clip transition-all duration-300 ease-in-out ${collapsed ? "max-w-0 opacity-0" : "max-w-[140px] opacity-100"}`}
+                    className={`overflow-hidden text-clip transition-all duration-200 ease-in-out ${collapsed ? "max-w-0 opacity-0" : "max-w-[140px] opacity-100"}`}
                   >
                     {item.label}
                   </span>
@@ -147,35 +149,39 @@ export function CockpitShell({ children, specimenIndex = 1, specimenTotal = 1 }:
               ))}
             </nav>
 
-            {collapsed ? (
-              <div className="mt-auto flex justify-center py-5">
-                <span className="h-2.5 w-2.5 rounded-full bg-[#63c9c2] shadow-[0_0_10px_2px_rgba(99,201,194,0.6)]" />
-              </div>
-            ) : (
-              <div className="mt-auto rounded-[10px] border border-[#456366] bg-[#213a3e] p-4">
-                <div className="mb-3 flex items-center justify-between">
-                  <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#89a6a2]">
-                    runtime
-                  </span>
-                  <span className="flex items-center gap-1.5 font-mono text-[9px] text-[#63c9c2]">
-                    <span className="h-1.5 w-1.5 rounded-full bg-[#63c9c2]" /> online
-                  </span>
+            {/* Bottom region: runtime panel (expanded) / status dot (collapsed) — cross-faded */}
+            <div className="mt-auto">
+              <div className={`overflow-hidden transition-all duration-200 ease-in-out ${collapsed ? "max-h-0 opacity-0" : "max-h-[240px] opacity-100"}`}>
+                <div className="rounded-[10px] border border-[#456366] bg-[#213a3e] p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-[#89a6a2]">
+                      runtime
+                    </span>
+                    <span className="flex items-center gap-1.5 font-mono text-[9px] text-[#63c9c2]">
+                      <span className="h-1.5 w-1.5 rounded-full bg-[#63c9c2]" /> online
+                    </span>
+                  </div>
+                  <p className="font-display text-sm text-[#f7f1e4]">C++17 sandbox</p>
+                  <p className="mt-1 text-[11px] leading-4 text-[#9bb2ac]">
+                    Runs stay local to this session.
+                  </p>
                 </div>
-                <p className="font-display text-sm text-[#f7f1e4]">C++17 sandbox</p>
-                <p className="mt-1 text-[11px] leading-4 text-[#9bb2ac]">
-                  Runs stay local to this session.
-                </p>
               </div>
-            )}
+              <div className={`overflow-hidden transition-all duration-200 ease-in-out ${collapsed ? "max-h-[60px] opacity-100" : "max-h-0 opacity-0"}`}>
+                <div className="flex justify-center py-5">
+                  <span className="h-2.5 w-2.5 rounded-full bg-[#63c9c2] shadow-[0_0_10px_2px_rgba(99,201,194,0.6)]" />
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Footer hint */}
-          {!collapsed && (
-            <div className="flex items-center gap-2 border-t border-[#3e5558] px-6 py-5 text-[#9bb2ac] transition-all duration-300 ease-in-out">
+          <div className={`overflow-hidden transition-all duration-200 ease-in-out ${collapsed ? "max-h-0 opacity-0" : "max-h-[80px] opacity-100"}`}>
+            <div className="flex items-center gap-2 border-t border-[#3e5558] px-6 py-5 text-[#9bb2ac]">
               <CircleHelp size={15} />
               <span className="text-[11px]">read the output, not just the verdict</span>
             </div>
-          )}
+          </div>
         </aside>
 
         <main className="min-w-0 flex-1 bg-[var(--cream)]">

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useCreateSubmission, useCreateTrace, useGetProblem, useListProblems, getGetProblemQueryKey, getListProblemsQueryKey } from "@workspace/api-client-react";
 import type { Problem, SubmissionResult, TraceResult } from "@workspace/api-client-react";
-import { AlertTriangle, BookOpen, Check, CirclePlay, Clock, Code2, Database, FileCode2, Loader2, Sparkles, WandSparkles, X } from "lucide-react";
+import { AlertTriangle, BookOpen, Check, ChevronRight, CirclePlay, Clock, Code2, Database, FileCode2, Loader2, Sparkles, WandSparkles, X } from "lucide-react";
 import { CockpitShell } from "@/components/cockpit-shell";
 import { CodeEditor } from "@/components/code-editor";
 
@@ -34,7 +34,7 @@ function ProblemShelf({
   onSelect: (id: string) => void;
 }) {
   const [query, setQuery] = useState("");
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({ Medium: true, Hard: true });
 
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -85,36 +85,46 @@ function ProblemShelf({
           groups.map((group) => {
             const isCollapsed = Boolean(collapsed[group.difficulty]);
             return (
-              <div key={group.difficulty} className="mb-2">
-                <button
-                  type="button"
-                  onClick={() => setCollapsed((c) => ({ ...c, [group.difficulty]: !c[group.difficulty] }))}
-                  data-testid={`group-${group.difficulty}`}
-                  className="flex w-full items-center justify-between rounded-[6px] bg-[#f1e8d8] px-2 py-1.5 transition-colors hover:bg-[#ece1cf]"
-                >
-                  <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-[var(--ink-soft)]">{group.difficulty}</span>
-                  <span className="font-mono text-[9px] text-[var(--ink-soft)]">{isCollapsed ? "+" : "−"} {String(group.items.length).padStart(2, "0")}</span>
-                </button>
-                {!isCollapsed && (
-                  <div className="mt-1 space-y-1">
-                    {group.items.map((item) => {
-                      const selected = selectedId === item.id;
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => onSelect(item.id)}
-                          data-testid={`button-problem-${item.id}`}
-                          className={`flex w-full items-center justify-between gap-2 rounded-[6px] border px-2.5 py-2 text-left transition-all hover:-translate-y-0.5 ${selected ? "border-[var(--ink)] bg-[#f27f6a] shadow-[3px_3px_0_var(--ink)]" : "border-transparent bg-[#f7f1e4] hover:border-[var(--ink)]"}`}
-                        >
-                          <span className={`truncate text-[12px] font-medium leading-4 ${selected ? "text-[#503430]" : "text-[var(--ink)]"}`}>{item.title}</span>
-                          <span className={`shrink-0 font-mono text-[8px] uppercase tracking-[0.1em] ${diffColor(item.difficulty, selected)}`}>{item.difficulty}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+               <div key={group.difficulty} className="mb-2">
+                 <button
+                   type="button"
+                   onClick={() => setCollapsed((c) => ({ ...c, [group.difficulty]: !c[group.difficulty] }))}
+                   data-testid={`group-${group.difficulty}`}
+                   aria-expanded={!isCollapsed}
+                   className="flex w-full items-center justify-between rounded-[6px] bg-[#f1e8d8] px-2 py-1.5 transition-colors hover:bg-[#ece1cf]"
+                 >
+                   <span className="flex items-center gap-1.5">
+                     <ChevronRight
+                       size={13}
+                       strokeWidth={2.5}
+                       className={`shrink-0 text-[var(--ink-soft)] transition-transform duration-200 ease-in-out ${isCollapsed ? "rotate-0" : "rotate-90"}`}
+                     />
+                     <span className="font-mono text-[9px] uppercase tracking-[0.15em] text-[var(--ink-soft)]">{group.difficulty}</span>
+                   </span>
+                   <span className="font-mono text-[9px] text-[var(--ink-soft)]">{isCollapsed ? "+" : "−"} {String(group.items.length).padStart(2, "0")}</span>
+                 </button>
+                 <div className={`grid transition-[grid-template-rows,opacity] duration-200 ease-in-out ${isCollapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"}`}>
+                   <div className="overflow-hidden">
+                     <div className="mt-1 space-y-1">
+                       {group.items.map((item) => {
+                         const selected = selectedId === item.id;
+                         return (
+                           <button
+                             key={item.id}
+                             type="button"
+                             onClick={() => onSelect(item.id)}
+                             data-testid={`button-problem-${item.id}`}
+                             className={`flex w-full items-center justify-between gap-2 rounded-[6px] border px-2.5 py-2 text-left transition-all hover:-translate-y-0.5 ${selected ? "border-[var(--ink)] bg-[#f27f6a] shadow-[3px_3px_0_var(--ink)]" : "border-transparent bg-[#f7f1e4] hover:border-[var(--ink)]"}`}
+                           >
+                             <span className={`truncate text-[12px] font-medium leading-4 ${selected ? "text-[#503430]" : "text-[var(--ink)]"}`}>{item.title}</span>
+                             <span className={`shrink-0 font-mono text-[8px] uppercase tracking-[0.1em] ${diffColor(item.difficulty, selected)}`}>{item.difficulty}</span>
+                           </button>
+                         );
+                       })}
+                     </div>
+                   </div>
+                 </div>
+               </div>
             );
           })
         )}
