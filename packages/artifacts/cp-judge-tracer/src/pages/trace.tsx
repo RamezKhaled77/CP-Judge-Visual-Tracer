@@ -424,11 +424,13 @@ function ArraysPanel({
                     const isActive = expr !== undefined;
                     return (
                       <div key={index} className="flex flex-col items-center gap-0.5">
-                        <span
-                          className={`font-mono text-[8px] ${isActive ? "font-bold text-[#9e4039]" : "text-[var(--ink-soft)]"}`}
-                        >
-                          {index}
-                        </span>
+                        {array.indexable && (
+                          <span
+                            className={`font-mono text-[8px] ${isActive ? "font-bold text-[#9e4039]" : "text-[var(--ink-soft)]"}`}
+                          >
+                            {index}
+                          </span>
+                        )}
                         <div
                           className={`flex h-8 min-w-8 items-center justify-center rounded-[4px] border px-1 font-mono text-[10px] ${
                             isActive

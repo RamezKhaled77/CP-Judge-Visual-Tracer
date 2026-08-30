@@ -1,7 +1,7 @@
 import { defineConfig, InputTransformerFn } from "orval";
 import path from "path";
 
-const root = path.resolve(__dirname, "..", "..");
+const root = path.resolve(__dirname, "..", "..", "..");
 const apiClientReactSrc = path.resolve(root, "packages", "lib", "api-client-react", "src");
 const apiZodSrc = path.resolve(root, "packages", "lib", "api-zod", "src");
 

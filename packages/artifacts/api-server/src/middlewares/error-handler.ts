@@ -27,6 +27,10 @@ export const errorHandler: ErrorRequestHandler = (error, req, res, _next) => {
     });
   }
 
+  if (anyError?.type === "entity.too.large") {
+    return res.status(413).json({ error: "Request payload too large" });
+  }
+
   if (typeof anyError?.message === "string" && anyError.message.startsWith(dockerRequiredMarker)) {
     return res.status(503).json({ error: anyError.message });
   }

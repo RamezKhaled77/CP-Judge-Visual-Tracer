@@ -20,6 +20,7 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  ErrorResponse,
   HealthStatus,
   Problem,
   SubmissionInput,
@@ -243,7 +244,7 @@ export const getGetProblemQueryKey = (problemId: string,) => {
     }
 
 
-export const getGetProblemQueryOptions = <TData = Awaited<ReturnType<typeof getProblem>>, TError = ErrorType<void>>(problemId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProblem>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetProblemQueryOptions = <TData = Awaited<ReturnType<typeof getProblem>>, TError = ErrorType<ErrorResponse>>(problemId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProblem>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -262,14 +263,14 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type GetProblemQueryResult = NonNullable<Awaited<ReturnType<typeof getProblem>>>
-export type GetProblemQueryError = ErrorType<void>
+export type GetProblemQueryError = ErrorType<ErrorResponse>
 
 
 /**
  * @summary Get a built-in problem
  */
 
-export function useGetProblem<TData = Awaited<ReturnType<typeof getProblem>>, TError = ErrorType<void>>(
+export function useGetProblem<TData = Awaited<ReturnType<typeof getProblem>>, TError = ErrorType<ErrorResponse>>(
  problemId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProblem>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
@@ -313,7 +314,7 @@ export const createSubmission = async (submissionInput: SubmissionInput, options
 
 
 
-export const getCreateSubmissionMutationOptions = <TError = ErrorType<unknown>,
+export const getCreateSubmissionMutationOptions = <TError = ErrorType<ErrorResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSubmission>>, TError,{data: BodyType<SubmissionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof createSubmission>>, TError,{data: BodyType<SubmissionInput>}, TContext> => {
 
@@ -342,12 +343,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type CreateSubmissionMutationResult = NonNullable<Awaited<ReturnType<typeof createSubmission>>>
     export type CreateSubmissionMutationBody = BodyType<SubmissionInput>
-    export type CreateSubmissionMutationError = ErrorType<unknown>
+    export type CreateSubmissionMutationError = ErrorType<ErrorResponse>
 
     /**
  * @summary Compile and judge C++ code
  */
-export const useCreateSubmission = <TError = ErrorType<unknown>,
+export const useCreateSubmission = <TError = ErrorType<ErrorResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createSubmission>>, TError,{data: BodyType<SubmissionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof createSubmission>>,
@@ -384,7 +385,7 @@ export const createTrace = async (traceInput: TraceInput, options?: Parameters<t
 
 
 
-export const getCreateTraceMutationOptions = <TError = ErrorType<unknown>,
+export const getCreateTraceMutationOptions = <TError = ErrorType<ErrorResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createTrace>>, TError,{data: BodyType<TraceInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof createTrace>>, TError,{data: BodyType<TraceInput>}, TContext> => {
 
@@ -413,12 +414,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type CreateTraceMutationResult = NonNullable<Awaited<ReturnType<typeof createTrace>>>
     export type CreateTraceMutationBody = BodyType<TraceInput>
-    export type CreateTraceMutationError = ErrorType<unknown>
+    export type CreateTraceMutationError = ErrorType<ErrorResponse>
 
     /**
  * @summary Run C++ code and capture a debugger trace
  */
-export const useCreateTrace = <TError = ErrorType<unknown>,
+export const useCreateTrace = <TError = ErrorType<ErrorResponse>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createTrace>>, TError,{data: BodyType<TraceInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof createTrace>>,
@@ -462,7 +463,7 @@ export const getGetTraceQueryKey = (traceId: string,) => {
     }
 
 
-export const getGetTraceQueryOptions = <TData = Awaited<ReturnType<typeof getTrace>>, TError = ErrorType<void>>(traceId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTrace>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+export const getGetTraceQueryOptions = <TData = Awaited<ReturnType<typeof getTrace>>, TError = ErrorType<ErrorResponse>>(traceId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTrace>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
@@ -481,14 +482,14 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 }
 
 export type GetTraceQueryResult = NonNullable<Awaited<ReturnType<typeof getTrace>>>
-export type GetTraceQueryError = ErrorType<void>
+export type GetTraceQueryError = ErrorType<ErrorResponse>
 
 
 /**
  * @summary Get a saved execution trace
  */
 
-export function useGetTrace<TData = Awaited<ReturnType<typeof getTrace>>, TError = ErrorType<void>>(
+export function useGetTrace<TData = Awaited<ReturnType<typeof getTrace>>, TError = ErrorType<ErrorResponse>>(
  traceId: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTrace>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
 
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {

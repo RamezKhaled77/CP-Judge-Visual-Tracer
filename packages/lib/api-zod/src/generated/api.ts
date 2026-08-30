@@ -112,8 +112,14 @@ export const CreateTraceResponse = zod.object({
   "arrays": zod.array(zod.object({
   "name": zod.string(),
   "type": zod.string(),
-  "values": zod.array(zod.string())
-}))
+  "values": zod.array(zod.string()),
+  "indexable": zod.boolean().describe('True when the container is indexed by an integer offset that the user can subscript (vector, C-array, string). False for map\/set\/stack\/queue where the numeric position above each cell would be misleading.\n')
+})),
+  "highlights": zod.array(zod.object({
+  "array": zod.string(),
+  "index": zod.number(),
+  "expr": zod.string()
+})).optional()
 })),
   "source": zod.string(),
   "truncated": zod.boolean(),
@@ -147,8 +153,14 @@ export const GetTraceResponse = zod.object({
   "arrays": zod.array(zod.object({
   "name": zod.string(),
   "type": zod.string(),
-  "values": zod.array(zod.string())
-}))
+  "values": zod.array(zod.string()),
+  "indexable": zod.boolean().describe('True when the container is indexed by an integer offset that the user can subscript (vector, C-array, string). False for map\/set\/stack\/queue where the numeric position above each cell would be misleading.\n')
+})),
+  "highlights": zod.array(zod.object({
+  "array": zod.string(),
+  "index": zod.number(),
+  "expr": zod.string()
+})).optional()
 })),
   "source": zod.string(),
   "truncated": zod.boolean(),

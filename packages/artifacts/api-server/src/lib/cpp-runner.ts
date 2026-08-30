@@ -54,9 +54,13 @@ async function ensureSandboxImage(): Promise<void> {
 
 function requireSandbox(): Promise<void> {
   if (!sandboxReady) {
-    sandboxReady = ensureSandboxImage().catch((error) => {
+    // Resolve once, then drop the cached promise so the next request
+    // re-verifies image presence. A cached success must not survive the
+    // image being removed/pruned between requests — otherwise `docker run`
+    // fails later with "image not found" instead of rebuilding. Concurrent
+    // calls during a single check still share this in-flight promise.
+    sandboxReady = ensureSandboxImage().finally(() => {
       sandboxReady = null;
-      throw error;
     });
   }
   return sandboxReady;
@@ -399,6 +403,64 @@ function wordOccurs(line: string, name: string): boolean {
   return new RegExp(`\\b${escaped}\\b`).test(line);
 }
 
+// Keywords that, when appearing immediately before a name, mean the name is NOT
+// being declared (e.g. `return x`, `if (x`, `while (x`). Used so a usage line is
+// never mistaken for a declaration.
+const DECL_KEYWORD_STOP = new Set([
+  "if", "else", "for", "while", "do", "switch", "case", "catch", "try",
+  "return", "sizeof", "delete", "new", "throw", "goto", "continue", "break",
+  "default", "using", "typedef", "static_assert",
+]);
+
+// True when `line` is a *declaration* of `varName` (a type/decl-specifier
+// precedes the name), as opposed to a mere usage. This lets us find the
+// variable's own declaration line even when the same name is declared in
+// several blocks (shadowing): we then gate visibility on the most recent such
+// declaration at or before the current line, not the first occurrence.
+function declaresName(line: string, varName: string): boolean {
+  const escaped = varName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp(`\\b([A-Za-z_]\\w*(?:\\s*<[^<>]*>)?)\\s*[*&]*\\s+${escaped}\\b`);
+  const match = re.exec(line);
+  if (!match) return false;
+  return !DECL_KEYWORD_STOP.has(match[1]);
+}
+
+// GDB pretty-prints associative/sequential containers into a readable string
+// (e.g. `std::map with 3 elements = {[1] = 2, [2] = 2, [3] = 3}` or
+// `std::deque with 1 element = {40 '('}`). Parse that into per-element display
+// strings so non-vector containers render readably instead of a `{...}` blob.
+// `associative` keeps the `key → value` pairing (maps); otherwise elements are
+// a plain comma-separated sequence (sets, stacks, queues).
+function parsePrettyContainer(value: string, associative: boolean): string[] | null {
+  const open = value.indexOf("{");
+  const close = value.lastIndexOf("}");
+  if (open < 0 || close < open) return [];
+  const body = value.slice(open + 1, close);
+  if (/error reading variable/.test(body)) return null;
+  const trimmed = body.trim();
+  if (trimmed.length === 0) return [];
+  if (associative) {
+    const pairs: string[] = [];
+    const re = /\[([^\]]+)\]\s*=\s*([^,}]*)/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(body))) pairs.push(`${m[1].trim()} → ${m[2].trim()}`);
+    return pairs;
+  }
+  return body.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+}
+
+// Containers whose elements are addressed by an integer index (so array-index
+// highlighting applies). Maps/sets/stacks/queues are keyed/top-addressed and
+// are rendered from GDB's pretty-printed value instead.
+function isIndexableType(type: string): boolean {
+  return (
+    /^std::vector</.test(type) ||
+    /^std::array</.test(type) ||
+    /^std::string/.test(type) ||
+    /\]$/.test(type)
+  );
+}
+
 // Map each top-level function to the 1-based line its definition starts on.
 // The allow-list of control keywords guards against `if`/`for`/`while` et al.
 // being mistaken for function definitions (their parameter lists contain `;`).
@@ -414,19 +476,36 @@ function computeFunctionStarts(source: string): { name: string; start: number }[
   return fns;
 }
 
-// First 1-based line within `funcName` where `varName` appears as a standalone
-// word — its declaration line. Returns null when it can't be determined, in
-// which case callers prefer to *show* the variable rather than hide real state.
+// Line (1-based) at or before `currentLine` within `funcName` where `varName`
+// is *declared*. Returns the most recent declaration so that, for a shadowed
+// name, the in-scope (innermost/most-recent) declaration gates visibility —
+// this is what hides an uninitialised second-loop `i` on its own declaration
+// line instead of using the first loop's earlier declaration line.
+// Falls back to the first textual occurrence when no declaration pattern is
+// recognised (keeps behaviour for unusual declarations intact). Returns null
+// when nothing can be determined, in which case callers prefer to *show* the
+// variable rather than hide real state.
 function declarationLine(
   source: string,
   functions: { name: string; start: number }[],
   funcName: string,
   varName: string,
+  currentLine: number,
 ): number | null {
   const fn = functions.find((f) => f.name === funcName);
   if (!fn) return null;
   const lines = source.split("\n");
-  for (let i = fn.start - 1; i < lines.length; i++) {
+  let fnEnd = lines.length;
+  for (const f of functions) {
+    if (f.start > fn.start && f.start < fnEnd) fnEnd = f.start;
+  }
+  const limit = Math.min(currentLine, fnEnd);
+  let lastDecl: number | null = null;
+  for (let i = fn.start - 1; i < limit; i++) {
+    if (declaresName(stripSourceNoise(lines[i]), varName)) lastDecl = i + 1;
+  }
+  if (lastDecl !== null) return lastDecl;
+  for (let i = fn.start - 1; i < fnEnd; i++) {
     if (wordOccurs(stripSourceNoise(lines[i]), varName)) return i + 1;
   }
   return null;
@@ -463,7 +542,7 @@ export async function traceWithGdb(code: string, input: string, maxSteps = trace
     function: string;
     locals: { name: string; type: string; value: string }[];
     stack: { function: string; line: number }[];
-    arrays: { name: string; type: string; values: string[] }[];
+    arrays: { name: string; type: string; values: string[]; indexable: boolean }[];
     highlights: { array: string; index: number; expr: string }[];
   }[] = [];
 
@@ -475,7 +554,7 @@ export async function traceWithGdb(code: string, input: string, maxSteps = trace
     // Compiler-internal temporaries (range-for helpers, etc.) are never user
     // state — always hide them.
     if (name.startsWith("__")) return false;
-    const decl = declarationLine(code, functions, func, rootName(name));
+    const decl = declarationLine(code, functions, func, rootName(name), line);
     if (decl === null) return true; // ambiguous → prefer to show
     return line > decl;
   };
@@ -591,7 +670,7 @@ export async function traceWithGdb(code: string, input: string, maxSteps = trace
     const MAX_VECTOR_BYTES = BigInt(MAX_ELEMENTS_PER_ARRAY) * 64n; // generous absolute byte ceiling
     const expandVector = async (
       agg: { name: string; type: string },
-      arraysOut: { name: string; type: string; values: string[] }[],
+      arraysOut: { name: string; type: string; values: string[]; indexable: boolean }[],
     ): Promise<void> => {
       const base = `${agg.name}._M_impl`;
       // Serialized on purpose — every exec() is a strict request/response
@@ -620,7 +699,7 @@ export async function traceWithGdb(code: string, input: string, maxSteps = trace
         values.push(miField(line, "value") || "{...}");
       }
       if (values.length > 0) {
-        arraysOut.push({ name: agg.name, type: agg.type, values });
+        arraysOut.push({ name: agg.name, type: agg.type, values, indexable: true });
       }
     };
 
@@ -628,9 +707,36 @@ export async function traceWithGdb(code: string, input: string, maxSteps = trace
     // with clean element children) or flattened locals rows (structs).
     const expandAggregate = async (
       agg: { name: string; type: string },
-      arraysOut: { name: string; type: string; values: string[] }[],
+      arraysOut: { name: string; type: string; values: string[]; indexable: boolean }[],
       localsOut: { name: string; type: string; value: string }[],
     ): Promise<void> => {
+      // Map / set / stack / queue: GDB won't expose element children through a
+      // varobj, but printing the whole container yields a readable pretty-print.
+      // Parse that into per-element rows so the panel shows key→value pairs
+      // (maps) or the contents in order (stacks/queues/sets) rather than `{...}`.
+      const isAssoc = /^std::(unordered_)?map</.test(agg.type);
+      const isSet = /^std::(unordered_)?set</.test(agg.type);
+      const isStack = /^std::stack</.test(agg.type);
+      const isQueue = /^std::(priority_)?queue</.test(agg.type);
+      if (isAssoc || isSet || isStack || isQueue) {
+        const whole = await execWatchdog(`-data-evaluate-expression "${agg.name}"`, agg.name);
+        if (!whole.includes("^error")) {
+          const val = miField(whole, "value") || "";
+          const parsed = parsePrettyContainer(val, isAssoc);
+          if (parsed !== null) {
+            arraysOut.push({
+              name: agg.name,
+              type: agg.type,
+              values: parsed.slice(0, MAX_ELEMENTS_PER_ARRAY),
+              indexable: false,
+            });
+            return;
+          }
+        }
+        // Evaluation failed or memory was unreadable — skip rather than show a
+        // misleading `{...}` blob.
+        return;
+      }
       if (/^std::vector</.test(agg.type)) {
         // Python-free layout walk; cannot hang regardless of memory state.
         await expandVector(agg, arraysOut);
@@ -653,7 +759,7 @@ export async function traceWithGdb(code: string, input: string, maxSteps = trace
           values.push(miField(line, "value") || "{...}");
         }
         if (values.length > 0) {
-          arraysOut.push({ name: agg.name, type: agg.type, values });
+          arraysOut.push({ name: agg.name, type: agg.type, values, indexable: true });
         }
         return;
       }
@@ -704,6 +810,7 @@ export async function traceWithGdb(code: string, input: string, maxSteps = trace
                   name: agg.name,
                   type: agg.type,
                   values: elements.slice(0, MAX_ELEMENTS_PER_ARRAY).map((child) => child.value ?? "{...}"),
+                  indexable: true,
                 });
                 return;
               }
@@ -729,6 +836,7 @@ export async function traceWithGdb(code: string, input: string, maxSteps = trace
             name: agg.name,
             type: agg.type,
             values: realChildren.slice(0, MAX_ELEMENTS_PER_ARRAY).map((child) => child.value ?? "{...}"),
+            indexable: true,
           });
           return;
         }
@@ -759,7 +867,7 @@ export async function traceWithGdb(code: string, input: string, maxSteps = trace
       const aggregates = entries.filter((entry) => entry.value === null).slice(0, MAX_AGGREGATES_PER_STEP);
 
       const locals: { name: string; type: string; value: string }[] = [];
-      const arrays: { name: string; type: string; values: string[] }[] = [];
+      const arrays: { name: string; type: string; values: string[]; indexable: boolean }[] = [];
       // Scalars: only those whose declaration line has already executed.
       for (const entry of scalars) {
         if (locals.length >= MAX_TOTAL_LOCALS) break;
@@ -781,6 +889,7 @@ export async function traceWithGdb(code: string, input: string, maxSteps = trace
       const sourceLine = code.split("\n")[current.line - 1] ?? "";
       const safeExpr = /^[\w]+(?:\s*[-+*/]\s*(?:[\w]+|\d+))*$/;
       for (const array of arrays) {
+        if (!isIndexableType(array.type)) continue;
         const re = new RegExp(
           `\\b${array.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\[([^\\]]*?)\\]`,
         );

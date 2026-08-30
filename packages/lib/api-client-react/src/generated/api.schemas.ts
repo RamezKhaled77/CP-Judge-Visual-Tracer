@@ -9,6 +9,23 @@ export interface HealthStatus {
   status: string;
 }
 
+export type ErrorResponseDetailsItem = {
+  /** Dot-path of the offending field, when applicable. */
+  path?: string;
+  /** Description of the issue for this entry. */
+  message: string;
+};
+
+/**
+ * Consistent error envelope returned for all non-2xx responses. The error field is always a safe, client-facing summary; internal details (stack traces, file paths) are logged server-side only and never leaked here.
+ */
+export interface ErrorResponse {
+  /** Human-readable summary of the failure. */
+  error: string;
+  /** Optional structured detail, e.g. per-field validation issues. */
+  details?: ErrorResponseDetailsItem[];
+}
+
 export interface ProblemTestCase {
   id: string;
   input: string;
@@ -79,7 +96,15 @@ export interface TraceArray {
   name: string;
   type: string;
   values: string[];
+  /** True when the container is indexed by an integer offset that the user can subscript (vector, C-array, string). False for map/set/stack/queue where the numeric position above each cell would be misleading. */
+  indexable: boolean;
 }
+
+export type TraceStepHighlightsItem = {
+  array: string;
+  index: number;
+  expr: string;
+};
 
 export interface TraceStep {
   step: number;
@@ -88,7 +113,7 @@ export interface TraceStep {
   locals: TraceLocal[];
   stack: TraceFrame[];
   arrays: TraceArray[];
-  highlights?: { array: string; index: number; expr: string }[];
+  highlights?: TraceStepHighlightsItem[];
 }
 
 export interface TraceResult {

@@ -10,4 +10,6 @@ export interface TraceArray {
   name: string;
   type: string;
   values: string[];
+  /** True when the container is indexed by an integer offset that the user can subscript (vector, C-array, string). False for map/set/stack/queue where the numeric position above each cell would be misleading. */
+  indexable: boolean;
 }

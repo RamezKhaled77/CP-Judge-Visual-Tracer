@@ -64,6 +64,10 @@ paths:
                 $ref: "#/components/schemas/Problem"
         "404":
           description: Problem not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /submissions:
     post:
       operationId: createSubmission
@@ -77,11 +81,50 @@ paths:
               $ref: "#/components/schemas/SubmissionInput"
       responses:
         "200":
-          description: Judge result
+          description: >
+            Judge result. The verdict field is one of AC, WA, TLE, RE, or CE.
+            A compile failure is a normal 200 with verdict "CE" (and a populated
+            compileError) — it is NOT an HTTP error and must not be turned into a 500.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/SubmissionResult"
+        "400":
+          description: Invalid request payload (request validation failed)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Problem not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: Request payload too large
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too many requests (sandbox capacity exceeded)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Unexpected server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Sandbox (Docker) unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /trace:
     post:
       operationId: createTrace
@@ -100,6 +143,36 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TraceResult"
+        "400":
+          description: Invalid request payload (request validation failed)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: Request payload too large
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too many requests (sandbox capacity exceeded)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Unexpected server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Sandbox (Docker) unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /trace/{traceId}:
     get:
       operationId: getTrace
@@ -120,6 +193,16 @@ paths:
                 $ref: "#/components/schemas/TraceResult"
         "404":
           description: Trace not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Unexpected server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 components:
   schemas:
     HealthStatus:
@@ -129,6 +212,32 @@ components:
           type: string
       required:
         - status
+    ErrorResponse:
+      type: object
+      description: >
+        Consistent error envelope returned for all non-2xx responses. The error
+        field is always a safe, client-facing summary; internal details (stack
+        traces, file paths) are logged server-side only and never leaked here.
+      properties:
+        error:
+          type: string
+          description: Human-readable summary of the failure.
+        details:
+          type: array
+          description: Optional structured detail, e.g. per-field validation issues.
+          items:
+            type: object
+            properties:
+              path:
+                type: string
+                description: Dot-path of the offending field, when applicable.
+              message:
+                type: string
+                description: Description of the issue for this entry.
+            required:
+              - message
+      required:
+        - error
     ProblemTestCase:
       type: object
       properties:
@@ -203,7 +312,13 @@ components:
         values:
           type: array
           items: { type: string }
-      required: [name, type, values]
+        indexable:
+          type: boolean
+          description: >
+            True when the container is indexed by an integer offset that the user
+            can subscript (vector, C-array, string). False for map/set/stack/queue
+            where the numeric position above each cell would be misleading.
+      required: [name, type, values, indexable]
     TraceStep:
       type: object
       properties:

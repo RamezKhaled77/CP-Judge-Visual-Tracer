@@ -8,6 +8,7 @@
 import type { TraceArray } from './traceArray';
 import type { TraceFrame } from './traceFrame';
 import type { TraceLocal } from './traceLocal';
+import type { TraceStepHighlightsItem } from './traceStepHighlightsItem';
 
 export interface TraceStep {
   step: number;
@@ -16,5 +17,5 @@ export interface TraceStep {
   locals: TraceLocal[];
   stack: TraceFrame[];
   arrays: TraceArray[];
-  highlights?: { array: string; index: number; expr: string }[];
+  highlights?: TraceStepHighlightsItem[];
 }

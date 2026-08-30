@@ -6,6 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from './errorResponse';
+export * from './errorResponseDetailsItem';
 export * from './healthStatus';
 export * from './problem';
 export * from './problemDifficulty';
@@ -19,3 +21,4 @@ export * from './traceInput';
 export * from './traceLocal';
 export * from './traceResult';
 export * from './traceStep';
+export * from './traceStepHighlightsItem';
