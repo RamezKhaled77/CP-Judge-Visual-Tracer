@@ -369,12 +369,22 @@ export function miFrames(record: string) {
   })).filter((frame) => frame.line > 0);
 }
 
+// GDB renders C++ reference locals (e.g. `int& x`, structured bindings
+// `auto& [v, c]`) as `@0xADDRESS: value` — the address of the referred-to
+// object followed by its dereferenced value. The address prefix is noise for a
+// learner and reads like garbage, so surface only the underlying value.
+function cleanLocalValue(value: string | null): string | null {
+  if (value === null) return null;
+  const refMatch = value.match(/^@0x[0-9a-fA-F]+:\s*(.*)$/);
+  return refMatch ? refMatch[1] : value;
+}
+
 export function miVariables(record: string) {
   return [...record.matchAll(/\{name="((?:\\.|[^"])*)"(?:,arg="(?:\\.|[^"]*)")?,type="((?:\\.|[^"])*)"(?:,value="((?:\\.|[^"])*)")?\}/g)]
     .map((match) => ({
       name: match[1].replace(/\\"/g, '"'),
       type: match[2].replace(/\\"/g, '"'),
-      value: match[3] !== undefined ? match[3].replace(/\\"/g, '"') : null,
+      value: cleanLocalValue(match[3] !== undefined ? match[3].replace(/\\"/g, '"') : null),
     }));
 }
 
@@ -476,6 +486,35 @@ function computeFunctionStarts(source: string): { name: string; start: number }[
   return fns;
 }
 
+// [start, end] line span (1-based) of `main`, used only for teardown
+// detection. Deliberately independent of `computeFunctionStarts` (which uses a
+// strict definition regex that misses single-line bodies like
+// `int main(){ ... }`), so it correctly handles both styles.
+function mainSpan(source: string): { start: number; end: number } | null {
+  const lines = source.split("\n");
+  let startLine = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^\s*(?:inline\s+)?[A-Za-z_][\w:]*\s+main\s*\(/.test(lines[i])) {
+      startLine = i + 1;
+      break;
+    }
+  }
+  if (startLine < 0) return null;
+  let depth = 0;
+  let opened = false;
+  for (let i = startLine - 1; i < lines.length; i++) {
+    for (const ch of lines[i]) {
+      if (ch === "{") {
+        depth++;
+        opened = true;
+      } else if (ch === "}") {
+        if (opened && --depth === 0) return { start: startLine, end: i + 1 };
+      }
+    }
+  }
+  return { start: startLine, end: lines.length };
+}
+
 // Line (1-based) at or before `currentLine` within `funcName` where `varName`
 // is *declared*. Returns the most recent declaration so that, for a shadowed
 // name, the in-scope (innermost/most-recent) declaration gates visibility —
@@ -507,6 +546,43 @@ function declarationLine(
   if (lastDecl !== null) return lastDecl;
   for (let i = fn.start - 1; i < fnEnd; i++) {
     if (wordOccurs(stripSourceNoise(lines[i]), varName)) return i + 1;
+  }
+  return null;
+}
+
+// First line (1-based) at or before `currentLine` within `funcName` where
+// `varName` is *assigned* (initialiser, `=`, compound assignment, `cin >>`,
+// increment/decrement). Used alongside declarationLine so a scalar stays hidden
+// until its value is actually established — otherwise the stop on the
+// declaration/assignment statement (before it executes) surfaces uninitialised
+// stack garbage. Detection is deliberately conservative: it only recognises
+// explicit assignments, so a variable modified indirectly (e.g. via a function
+// call) is simply shown a stop early rather than wrongly hidden.
+function assignmentLine(
+  source: string,
+  functions: { name: string; start: number }[],
+  funcName: string,
+  varName: string,
+  currentLine: number,
+): number | null {
+  const fn = functions.find((f) => f.name === funcName);
+  if (!fn) return null;
+  const lines = source.split("\n");
+  let fnEnd = lines.length;
+  for (const f of functions) {
+    if (f.start > fn.start && f.start < fnEnd) fnEnd = f.start;
+  }
+  const limit = Math.min(currentLine, fnEnd);
+  const re = new RegExp(
+    `\\b${varName}\\b\\s*(=(?!=)|\\+=|-=|\\*=|\\/=|%=|\\|=|\\^=|\\+\\+|--)`,
+  );
+  const cinRe = new RegExp(`(?:cin\\s*>>|>>)\\s*\\b${varName}\\b`);
+  // Return the FIRST assignment at or before the current line: a scalar only
+  // holds uninitialised garbage before its first assignment — once assigned,
+  // every later stop (including its own reassignment) holds a valid value.
+  for (let i = fn.start - 1; i < limit; i++) {
+    const noise = stripSourceNoise(lines[i]);
+    if (re.test(noise) || cinRe.test(noise)) return i + 1;
   }
   return null;
 }
@@ -549,14 +625,25 @@ export async function traceWithGdb(code: string, input: string, maxSteps = trace
   // Static source analysis used to gate variable/array visibility by
   // declaration line (see captureStep). Computed once per trace.
   const functions = computeFunctionStarts(code);
+  // Span of `main` (start/end lines). Used to stop the trace at `main`'s end
+  // (see captureStep / finish) so the final frame reflects live state, not
+  // GDB's post-destruction epilogue where freed containers read as garbage.
+  const mainSpanResult = mainSpan(code);
+  const mainStart = mainSpanResult?.start ?? null;
+  const mainEndLine = mainSpanResult?.end ?? null;
   const rootName = (name: string): string => name.split(".")[0];
   const isVisible = (name: string, func: string, line: number): boolean => {
     // Compiler-internal temporaries (range-for helpers, etc.) are never user
     // state — always hide them.
     if (name.startsWith("__")) return false;
     const decl = declarationLine(code, functions, func, rootName(name), line);
-    if (decl === null) return true; // ambiguous → prefer to show
-    return line > decl;
+    const assign = assignmentLine(code, functions, func, rootName(name), line);
+    // A scalar is only meaningful once its declaration AND first assignment
+    // have executed — this hides uninitialised stack garbage shown at the
+    // declaration/assignment statement's own stop (before it runs).
+    const ready = Math.max(decl ?? Number.NEGATIVE_INFINITY, assign ?? Number.NEGATIVE_INFINITY);
+    if (!Number.isFinite(ready)) return true; // ambiguous → prefer to show
+    return line > ready;
   };
 
   return new Promise<{ trace: typeof trace; error: string | null; truncated: boolean }>((resolve) => {
@@ -602,6 +689,21 @@ export async function traceWithGdb(code: string, input: string, maxSteps = trace
 
     const finish = async (error: string | null, truncated = false) => {
       if (finished) return;
+      // Single-line `main` shares its closing brace with the body, so the
+      // line-based teardown drop in captureStep can't fire; the final captured
+      // frame is still GDB's post-destruction epilogue (freed containers). Drop
+      // it so the trace ends on the last real user statement instead. Only on
+      // normal completion (errors already truncate/abort meaningfully).
+      if (
+        error === null &&
+        mainStart !== null &&
+        mainEndLine !== null &&
+        mainEndLine === mainStart &&
+        trace.length > 0 &&
+        trace[trace.length - 1].arrays.length > 0
+      ) {
+        trace.pop();
+      }
       finished = true;
       clearTimeout(timer);
       if (!gdb.killed) gdb.kill("SIGTERM");
@@ -920,6 +1022,23 @@ export async function traceWithGdb(code: string, input: string, maxSteps = trace
       if (trace.length >= maxSteps) {
         exitingTruncated = true;
         await exec("-gdb-exit");
+        return;
+      }
+      // Stop at the end of `main`: the next step would enter GDB's function-exit
+      // epilogue, where local containers are destructed and their varobjs still
+      // resolve to freed memory (garbage). Capturing that frame only shows
+      // meaningless values, so we end on the last real user statement instead.
+      // Guarded to multi-line `main` (closing brace on its own line) — a
+      // single-line `main` would match this on its first statement.
+      if (
+        mainEndLine !== null &&
+        mainStart !== null &&
+        mainEndLine > mainStart &&
+        current.function === "main" &&
+        current.line === mainEndLine
+      ) {
+        await exec("-gdb-exit").catch(() => undefined);
+        void finish(null, exitingTruncated || trace.length >= maxSteps);
         return;
       }
       await exec("-exec-step");
