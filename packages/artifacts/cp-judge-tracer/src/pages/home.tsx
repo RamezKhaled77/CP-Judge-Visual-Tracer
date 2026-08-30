@@ -196,8 +196,72 @@ type RawRun = {
   exitCode: number;
   runtimeMs: number;
   timedOut: boolean;
+  signal: string | null;
   compileError: string | null;
 };
+
+type RunStatus = { tone: "error" | "timeout" | "info"; title: string; detail?: string };
+
+// Turn a raw run result into a human-readable explanation of what went wrong
+// (or a neutral note when the run succeeded but produced nothing).
+function describeRun(run: RawRun): RunStatus | null {
+  if (run.timedOut) {
+    return {
+      tone: "timeout",
+      title: "Time Limit Exceeded",
+      detail:
+        "Your program ran past the time limit — usually an infinite loop or an algorithm that is too slow. Check for loops that never terminate or input you forgot to consume.",
+    };
+  }
+  if (run.signal) {
+    const signals: Record<string, { title: string; detail: string }> = {
+      SIGSEGV: {
+        title: "Segmentation fault (SIGSEGV)",
+        detail:
+          "Likely an out-of-bounds array/vector access, a null or invalid pointer dereference, or a stack overflow from very deep recursion.",
+      },
+      SIGABRT: {
+        title: "Aborted (SIGABRT)",
+        detail:
+          "An assertion failed, memory allocation failed (std::bad_alloc), or a C++ container detected an out-of-bounds access in this debug build.",
+      },
+      SIGFPE: {
+        title: "Floating-point exception (SIGFPE)",
+        detail: "Division by zero or another invalid arithmetic operation.",
+      },
+      SIGILL: {
+        title: "Illegal instruction (SIGILL)",
+        detail: "The process tried an unsupported CPU instruction or the binary is corrupted.",
+      },
+      SIGBUS: {
+        title: "Bus error (SIGBUS)",
+        detail: "An invalid memory access, e.g. a misaligned address.",
+      },
+    };
+    const info =
+      signals[run.signal] ??
+      { title: `Terminated by ${run.signal}`, detail: "The program was killed by an operating-system signal." };
+    return { tone: "error", title: `Runtime Error — ${info.title}`, detail: info.detail };
+  }
+  if (run.exitCode !== 0) {
+    return {
+      tone: "error",
+      title: `Runtime Error (exit code ${run.exitCode})`,
+      detail: run.stderr
+        ? undefined
+        : "The program exited with a non-zero status. See stderr below for details.",
+    };
+  }
+  if (!run.stdout && !run.stderr) {
+    return {
+      tone: "info",
+      title: "Ran successfully — no output",
+      detail:
+        "The program exited 0 but printed nothing. Make sure it writes to stdout (cout) and that the stdin you provided matches the format it expects.",
+    };
+  }
+  return null;
+}
 
 function RawOutputPanel({ run, isRunning, onRun }: { run: RawRun | null; isRunning: boolean; onRun: () => void }) {
   return (
@@ -233,6 +297,22 @@ function RawOutputPanel({ run, isRunning, onRun }: { run: RawRun | null; isRunni
             <span className={`rounded-full border border-[var(--ink)] px-2 py-0.5 ${run.exitCode === 0 && !run.timedOut ? "bg-[#63c9c2]" : "bg-[#f27f6a]"}`}>exit {run.exitCode}{run.timedOut ? " · TLE" : ""}</span>
             <span>{run.runtimeMs} ms</span>
           </div>
+          {(() => {
+            const status = describeRun(run);
+            if (!status) return null;
+            const box =
+              status.tone === "error"
+                ? "border-[#9e4039] bg-[#f8c1b4] text-[#542c2a]"
+                : status.tone === "timeout"
+                  ? "border-[#b07a2e] bg-[#f7e3c4] text-[#5e3d12]"
+                  : "border-[#b7aa96] bg-[#f1e8d8] text-[#5e3935]";
+            return (
+              <div className={`rounded-[7px] border-2 p-3 ${box}`} data-testid="text-run-status">
+                <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em]">{status.title}</p>
+                {status.detail && <p className="mt-1 text-[11px] leading-5">{status.detail}</p>}
+              </div>
+            );
+          })()}
           <div>
             <p className="mb-1 font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--ink-soft)]">stdout</p>
             <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-[7px] border-2 border-[#b7aa96] bg-[#f7f1e4] p-3 font-mono text-[11px] leading-5 text-[var(--ink)]" data-testid="text-raw-stdout">{run.stdout || "(empty)"}{run.stdout && !run.stdout.endsWith("\n") ? "\n" : ""}</pre>

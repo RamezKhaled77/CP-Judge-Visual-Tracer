@@ -25,6 +25,7 @@ router.post("/run", jobQueue, async (req, res) => {
       exitCode: result.exitCode,
       runtimeMs: result.runtimeMs,
       timedOut: result.timedOut,
+      signal: result.signal ?? null,
       compileError: result.compileError ?? null,
     });
   } catch (error) {

@@ -110,7 +110,29 @@ export type RunResult = {
   exitCode: number;
   runtimeMs: number;
   timedOut: boolean;
+  // Populated when the process was terminated by an OS signal (e.g. SIGSEGV).
+  // null when it exited normally. Docker reports a crashed child's signal as a
+  // 128 + signum exit code rather than a real signal on the spawned `docker`
+  // process, so this is derived from the exit code when no raw signal is seen.
+  signal: string | null;
 };
+
+// Docker surfaces a child killed by a signal as a 128 + signum exit code on the
+// spawned `docker` process, so map that back to the originating signal name.
+function exitCodeToSignal(code: number): string | null {
+  if (code < 128) return null;
+  const sig = code - 128;
+  const names: Record<number, string> = {
+    2: "SIGINT",
+    4: "SIGILL",
+    6: "SIGABRT",
+    7: "SIGBUS",
+    8: "SIGFPE",
+    9: "SIGKILL",
+    11: "SIGSEGV",
+  };
+  return names[sig] ?? `SIG${sig}`;
+}
 
 function runProcess(file: string, args: string[], cwd: string, timeoutMs: number, input = ""): Promise<RunResult> {
   return new Promise((resolve) => {
@@ -150,11 +172,18 @@ function runProcess(file: string, args: string[], cwd: string, timeoutMs: number
     child.on("error", (error) => {
       clearTimeout(timer);
       forceRemove();
-      resolve({ stdout, stderr: error.message, exitCode: 1, runtimeMs: Date.now() - started, timedOut });
+      resolve({ stdout, stderr: error.message, exitCode: 1, runtimeMs: Date.now() - started, timedOut, signal: null });
     });
-    child.on("close", (code) => {
+    child.on("close", (code, signal) => {
       clearTimeout(timer);
-      resolve({ stdout, stderr, exitCode: code ?? 1, runtimeMs: Date.now() - started, timedOut });
+      resolve({
+        stdout,
+        stderr,
+        exitCode: code ?? 1,
+        runtimeMs: Date.now() - started,
+        timedOut,
+        signal: signal ?? exitCodeToSignal(code ?? 1),
+      });
     });
     child.stdin.end(input);
   });
@@ -254,6 +283,7 @@ export async function compileAndRun(
       exitCode: 1,
       runtimeMs: 0,
       timedOut: compiled.timedOut,
+      signal: null,
       compileError: compiled.compileError,
     };
   }
