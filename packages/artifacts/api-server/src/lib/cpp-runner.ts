@@ -374,6 +374,64 @@ export function miVariables(record: string) {
     }));
 }
 
+// --- Declaration-line filtering -----------------------------------------
+// GDB (especially at -O0) reports every function-scope local as in scope for
+// the whole body, even before its declaration line has executed — surfacing
+// uninitialized garbage (and, worse, variables declared many lines later).
+// We recover each variable's declaration line from the source so we can hide a
+// local / data-structure until execution has actually reached that line.
+// Container construction (`vector<int> a(n)`) only "happens" once we step past
+// the declaration line, so the rule is strict: visible IFF currentLine >
+// declarationLine (the declaration has executed).
+
+// Strip comments and literals so a variable name inside a `// note` or a string
+// literal is never mistaken for its declaration.
+function stripSourceNoise(line: string): string {
+  return line
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/\/\/[^\n]*/g, " ")
+    .replace(/"(?:\\.|[^"\\])*"/g, '""')
+    .replace(/'(?:\\.|[^'\\])*'/g, "''");
+}
+
+function wordOccurs(line: string, name: string): boolean {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\b${escaped}\\b`).test(line);
+}
+
+// Map each top-level function to the 1-based line its definition starts on.
+// The allow-list of control keywords guards against `if`/`for`/`while` et al.
+// being mistaken for function definitions (their parameter lists contain `;`).
+const FN_DEF_RE = /^[\w:~<>,*&\s]+\b([A-Za-z_]\w*)\s*\([^;{]*\)\s*\{?$/;
+const FN_DEF_BLACKLIST = new Set(["if", "for", "while", "switch", "catch", "return"]);
+function computeFunctionStarts(source: string): { name: string; start: number }[] {
+  const lines = source.split("\n");
+  const fns: { name: string; start: number }[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const match = FN_DEF_RE.exec(stripSourceNoise(lines[i]));
+    if (match && !FN_DEF_BLACKLIST.has(match[1])) fns.push({ name: match[1], start: i + 1 });
+  }
+  return fns;
+}
+
+// First 1-based line within `funcName` where `varName` appears as a standalone
+// word — its declaration line. Returns null when it can't be determined, in
+// which case callers prefer to *show* the variable rather than hide real state.
+function declarationLine(
+  source: string,
+  functions: { name: string; start: number }[],
+  funcName: string,
+  varName: string,
+): number | null {
+  const fn = functions.find((f) => f.name === funcName);
+  if (!fn) return null;
+  const lines = source.split("\n");
+  for (let i = fn.start - 1; i < lines.length; i++) {
+    if (wordOccurs(stripSourceNoise(lines[i]), varName)) return i + 1;
+  }
+  return null;
+}
+
 // Children of a -var-list-children --all-values response. `value` is null when
 // the field is absent from the record; "" (present but empty, e.g. the pseudo
 // public/private accessor children of struct varobjs) stays distinct.
@@ -406,7 +464,21 @@ export async function traceWithGdb(code: string, input: string, maxSteps = trace
     locals: { name: string; type: string; value: string }[];
     stack: { function: string; line: number }[];
     arrays: { name: string; type: string; values: string[] }[];
+    highlights: { array: string; index: number; expr: string }[];
   }[] = [];
+
+  // Static source analysis used to gate variable/array visibility by
+  // declaration line (see captureStep). Computed once per trace.
+  const functions = computeFunctionStarts(code);
+  const rootName = (name: string): string => name.split(".")[0];
+  const isVisible = (name: string, func: string, line: number): boolean => {
+    // Compiler-internal temporaries (range-for helpers, etc.) are never user
+    // state — always hide them.
+    if (name.startsWith("__")) return false;
+    const decl = declarationLine(code, functions, func, rootName(name));
+    if (decl === null) return true; // ambiguous → prefer to show
+    return line > decl;
+  };
 
   return new Promise<{ trace: typeof trace; error: string | null; truncated: boolean }>((resolve) => {
     // NOTE: the GDB session runs inside the sandbox container — user debug symbols
@@ -686,11 +758,44 @@ export async function traceWithGdb(code: string, input: string, maxSteps = trace
       const scalars = entries.filter((entry): entry is { name: string; type: string; value: string } => entry.value !== null);
       const aggregates = entries.filter((entry) => entry.value === null).slice(0, MAX_AGGREGATES_PER_STEP);
 
-      const locals: { name: string; type: string; value: string }[] = scalars.map((entry) => ({ ...entry }));
+      const locals: { name: string; type: string; value: string }[] = [];
       const arrays: { name: string; type: string; values: string[] }[] = [];
+      // Scalars: only those whose declaration line has already executed.
+      for (const entry of scalars) {
+        if (locals.length >= MAX_TOTAL_LOCALS) break;
+        if (isVisible(entry.name, current.function, current.line)) locals.push({ ...entry });
+      }
+      // Aggregates (containers/structs): expand only once declared, so unbuilt
+      // containers (e.g. `vector<int> a(n)` before it runs) stay hidden.
       for (const agg of aggregates) {
         if (locals.length >= MAX_TOTAL_LOCALS) break;
-        await expandAggregate(agg, arrays, locals);
+        if (isVisible(agg.name, current.function, current.line)) await expandAggregate(agg, arrays, locals);
+      }
+
+      // Index-highlighting: for each visible data structure, if the current
+      // source line reads/writes a single element `name[idx]` with a
+      // side-effect-free index expression resolvable in scope, record the
+      // accessed index so the UI can mark that cell. 2-D access and any
+      // expression that could mutate state (++, calls) are skipped.
+      const highlights: { array: string; index: number; expr: string }[] = [];
+      const sourceLine = code.split("\n")[current.line - 1] ?? "";
+      const safeExpr = /^[\w]+(?:\s*[-+*/]\s*(?:[\w]+|\d+))*$/;
+      for (const array of arrays) {
+        const re = new RegExp(
+          `\\b${array.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*\\[([^\\]]*?)\\]`,
+        );
+        const match = sourceLine.match(re);
+        if (!match) continue;
+        const expr = match[1].trim();
+        if (expr.includes("[") || !safeExpr.test(expr)) continue;
+        try {
+          const value = await evalNum(expr, `${array.name}[${expr}]`);
+          if (value !== null && value >= 0n && value <= 1000000n) {
+            highlights.push({ array: array.name, index: Number(value), expr });
+          }
+        } catch {
+          // index evaluation stalled/errored — leave the cell unhighlighted
+        }
       }
 
       trace.push({
@@ -700,6 +805,7 @@ export async function traceWithGdb(code: string, input: string, maxSteps = trace
         locals: locals.slice(0, MAX_TOTAL_LOCALS),
         stack: frames.map(({ function: fn, line: ln }) => ({ function: fn, line: ln })),
         arrays,
+        highlights,
       });
 
       if (trace.length >= maxSteps) {

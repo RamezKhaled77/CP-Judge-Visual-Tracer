@@ -219,6 +219,15 @@ components:
         arrays:
           type: array
           items: { $ref: "#/components/schemas/TraceArray" }
+        highlights:
+          type: array
+          items:
+            type: object
+            properties:
+              array: { type: string }
+              index: { type: number }
+              expr: { type: string }
+            required: [array, index, expr]
       required: [step, line, function, locals, stack, arrays]
     TraceResult:
       type: object

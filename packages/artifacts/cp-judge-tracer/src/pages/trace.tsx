@@ -7,8 +7,10 @@ import {
   ArrowLeft,
   Braces,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   CirclePause,
   CirclePlay,
   Clock3,
@@ -87,6 +89,18 @@ function TraceNotFound() {
   );
 }
 
+function useIsDesktop() {
+  const [isDesktop, setIsDesktop] = useState(false);
+  useEffect(() => {
+    const mql = window.matchMedia("(min-width: 1024px)");
+    const onChange = () => setIsDesktop(mql.matches);
+    mql.addEventListener("change", onChange);
+    setIsDesktop(mql.matches);
+    return () => mql.removeEventListener("change", onChange);
+  }, []);
+  return isDesktop;
+}
+
 function StepRail({
   trace,
   activeStep,
@@ -97,6 +111,9 @@ function StepRail({
   onSelect: (index: number) => void;
 }) {
   const [filter, setFilter] = useState("");
+  const isDesktop = useIsDesktop();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [scroll, setScroll] = useState(0);
 
   const filteredSteps = useMemo(() => {
     if (!filter.trim()) return trace.map((item, index) => ({ item, index }));
@@ -111,6 +128,45 @@ function StepRail({
           String(item.step).includes(query),
       );
   }, [trace, filter]);
+
+  // Lightweight windowing: only render the rows near the viewport so the list
+  // stays smooth even with hundreds of trace steps.
+  const itemSize = isDesktop ? 72 : 121;
+  const viewport = scrollRef.current
+    ? isDesktop
+      ? scrollRef.current.clientHeight
+      : scrollRef.current.clientWidth
+    : isDesktop
+      ? 520
+      : 110;
+  const visibleCount = Math.ceil(viewport / itemSize) + 4;
+  const start = Math.max(0, Math.floor(scroll / itemSize) - 2);
+  const end = Math.min(filteredSteps.length, start + visibleCount);
+  const windowItems = filteredSteps.slice(start, end);
+  const spacerBefore = start * itemSize;
+  const spacerAfter = (filteredSteps.length - end) * itemSize;
+
+  // Keep the active step in view as playback advances.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const activeIdx = filteredSteps.findIndex(({ index }) => index === activeStep);
+    if (activeIdx < 0) return;
+    const top = activeIdx * itemSize;
+    const viewStart = isDesktop ? el.scrollTop : el.scrollLeft;
+    const viewSize = isDesktop ? el.clientHeight : el.clientWidth;
+    if (top < viewStart || top + itemSize > viewStart + viewSize) {
+      const target = Math.max(0, top - viewSize / 2 + itemSize / 2);
+      el.scrollTo({ [isDesktop ? "top" : "left"]: target, behavior: "smooth" });
+    }
+  }, [activeStep, filteredSteps, itemSize, isDesktop]);
+
+  // Reset scroll position whenever the filter changes the list contents.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ [isDesktop ? "top" : "left"]: 0 });
+    setScroll(0);
+  }, [filter, isDesktop]);
 
   return (
     <aside className="thin-scrollbar flex w-full shrink-0 flex-col border-b-2 border-[var(--ink)] bg-[#e9dfce] p-3 lg:w-[190px] lg:border-b-0 lg:border-r-2 lg:p-4">
@@ -140,31 +196,45 @@ function StepRail({
         )}
       </div>
 
-      <div className="thin-scrollbar flex gap-2 overflow-x-auto lg:flex-1 lg:flex-col lg:overflow-y-auto lg:overflow-x-hidden">
+      <div
+        ref={scrollRef}
+        onScroll={(e) => setScroll(isDesktop ? e.currentTarget.scrollTop : e.currentTarget.scrollLeft)}
+        className="thin-scrollbar flex gap-2 overflow-x-auto lg:flex-1 lg:flex-col lg:overflow-y-auto"
+      >
         {filteredSteps.length === 0 ? (
           <div className="py-4 text-center font-mono text-[10px] text-[var(--ink-soft)]">No matching moments</div>
         ) : (
-          filteredSteps.map(({ item, index }) => (
-            <button
-              key={`${item.step}-${item.line}-${index}`}
-              type="button"
-              onClick={() => onSelect(index)}
-              data-testid={`button-trace-step-${item.step}`}
-              className={`min-w-[105px] rounded-[8px] border-2 px-3 py-2.5 text-left transition-all lg:min-w-0 ${
-                activeStep === index
-                  ? "border-[var(--ink)] bg-[#f27f6a] shadow-[3px_3px_0_var(--ink)]"
-                  : "border-transparent bg-[#f1e8d8] hover:border-[var(--ink)]"
-              }`}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-mono text-[10px] font-medium">#{String(item.step).padStart(2, "0")}</span>
-                <span className="font-mono text-[9px] text-[var(--ink-soft)]">L{item.line}</span>
-              </div>
-              <p className="mt-1 truncate font-mono text-[9px] uppercase tracking-[0.08em] text-[var(--ink-soft)]">
-                {item.function}
-              </p>
-            </button>
-          ))
+          <>
+            <div
+              aria-hidden
+              style={isDesktop ? { height: spacerBefore } : { width: spacerBefore }}
+            />
+            {windowItems.map(({ item, index }) => (
+              <button
+                key={`${item.step}-${item.line}-${index}`}
+                type="button"
+                onClick={() => onSelect(index)}
+                data-testid={`button-trace-step-${item.step}`}
+                className={`min-w-[105px] rounded-[8px] border-2 px-3 py-2.5 text-left transition-all lg:min-w-0 ${
+                  activeStep === index
+                    ? "border-[var(--ink)] bg-[#f27f6a] shadow-[3px_3px_0_var(--ink)]"
+                    : "border-transparent bg-[#f1e8d8] hover:border-[var(--ink)]"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-[10px] font-medium">#{String(item.step).padStart(2, "0")}</span>
+                  <span className="font-mono text-[9px] text-[var(--ink-soft)]">L{item.line}</span>
+                </div>
+                <p className="mt-1 truncate font-mono text-[9px] uppercase tracking-[0.08em] text-[var(--ink-soft)]">
+                  {item.function}
+                </p>
+              </button>
+            ))}
+            <div
+              aria-hidden
+              style={isDesktop ? { height: spacerAfter } : { width: spacerAfter }}
+            />
+          </>
         )}
       </div>
     </aside>
@@ -299,7 +369,26 @@ function StackPanel({ stack }: { stack: TraceStep["stack"] }) {
   );
 }
 
-function ArraysPanel({ arrays }: { arrays: TraceArray[] }) {
+// Collapse noisy STL type names into a readable form: drop the `std::` prefix
+// and the default allocator template argument (e.g. `std::vector<int,
+// std::allocator<int>>` -> `vector<int>`).
+function simplifyType(type: string): string {
+  let t = type.replace(/^std::/, "").replace(/std::/g, "");
+  t = t.replace(/,\s*std::allocator<[^>]*>/g, "");
+  t = t.replace(/,\s*allocator<[^>]*>/g, "");
+  t = t.replace(/basic_string/g, "string");
+  return t;
+}
+
+const MAX_RENDERED_CELLS = 50;
+
+function ArraysPanel({
+  arrays,
+  highlights = [],
+}: {
+  arrays: TraceArray[];
+  highlights?: { array: string; index: number; expr: string }[];
+}) {
   if (!arrays.length) return null;
   return (
     <section className="border-t-2 border-[var(--ink)] bg-[#e9dfce] p-4 sm:p-5" data-testid="panel-trace-arrays">
@@ -309,27 +398,71 @@ function ArraysPanel({ arrays }: { arrays: TraceArray[] }) {
         <span className="font-mono text-[9px] text-[var(--ink-soft)]">observed in frame</span>
       </div>
       <div className="flex gap-4 overflow-x-auto pb-1">
-        {arrays.map((array) => (
-          <div
-            key={array.name}
-            className="min-w-[220px] rounded-[8px] border-2 border-[var(--ink)] bg-[#f7f1e4] p-3 shadow-[3px_3px_0_rgba(25,42,46,0.2)]"
-          >
-            <div className="mb-2 flex items-center justify-between">
-              <span className="font-mono text-xs font-medium">{array.name}</span>
-              <span className="font-mono text-[9px] text-[var(--ink-soft)]">{array.type}</span>
-            </div>
-            <div className="flex gap-1">
-              {array.values.map((value, index) => (
-                <div
-                  key={`${value}-${index}`}
-                  className="flex h-8 min-w-8 items-center justify-center rounded-[4px] border border-[#b7aa96] bg-[#f2cc68] px-1 font-mono text-[10px]"
-                >
-                  {value}
+        {arrays.map((array) => {
+          const active = new Map(
+            highlights
+              .filter((h) => h.array === array.name)
+              .map((h) => [h.index, h.expr] as const),
+          );
+          const shown = array.values.slice(0, MAX_RENDERED_CELLS);
+          const extra = array.values.length - shown.length;
+          return (
+            <div
+              key={array.name}
+              className="flex min-w-[220px] flex-col rounded-[8px] border-2 border-[var(--ink)] bg-[#f7f1e4] p-3 shadow-[3px_3px_0_rgba(25,42,46,0.2)]"
+            >
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="font-mono text-xs font-medium">{array.name}</span>
+                <span className="font-mono text-[9px] text-[var(--ink-soft)]" title={array.type}>
+                  {simplifyType(array.type)}
+                </span>
+              </div>
+              <div className="array-scroll thin-scrollbar overflow-x-auto">
+                <div className="flex min-w-max gap-1 pb-0.5">
+                  {shown.map((value, index) => {
+                    const expr = active.get(index);
+                    const isActive = expr !== undefined;
+                    return (
+                      <div key={index} className="flex flex-col items-center gap-0.5">
+                        <span
+                          className={`font-mono text-[8px] ${isActive ? "font-bold text-[#9e4039]" : "text-[var(--ink-soft)]"}`}
+                        >
+                          {index}
+                        </span>
+                        <div
+                          className={`flex h-8 min-w-8 items-center justify-center rounded-[4px] border px-1 font-mono text-[10px] ${
+                            isActive
+                              ? "border-[#9e4039] bg-[#f8c1b4]"
+                              : "border-[#b7aa96] bg-[#f2cc68]"
+                          }`}
+                          title={expr ? `${array.name}[${expr}]` : undefined}
+                        >
+                          {value}
+                        </div>
+                        {isActive && (
+                          <span className="font-mono text-[8px] font-bold text-[#9e4039]">{expr}</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                  {extra > 0 && (
+                    <div className="flex flex-col items-center gap-0.5">
+                      <span className="font-mono text-[8px] text-[var(--ink-soft)]">…</span>
+                      <div className="flex h-8 items-center justify-center rounded-[4px] border border-dashed border-[#b7aa96] bg-[#eee5d6] px-2 font-mono text-[10px] text-[var(--ink-soft)]">
+                        +{extra}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              ))}
+              </div>
+              {array.values.length > MAX_RENDERED_CELLS && (
+                <p className="mt-1 font-mono text-[8px] text-[var(--ink-soft)]">
+                  showing first {MAX_RENDERED_CELLS} of {array.values.length} elements
+                </p>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );
@@ -462,6 +595,35 @@ export default function Trace() {
     setIsPlaying(false);
     setActiveStep(totalSteps - 1);
   }, [totalSteps]);
+
+  // Skip to the next/previous step whose source line differs from the current
+  // one — a fast way to jump between "interesting" points without scrubbing
+  // every single step.
+  const nextChangeStep = useCallback(() => {
+    if (!totalSteps || !traceResult) return;
+    const current = traceResult.trace[activeStep];
+    if (!current) return;
+    for (let i = activeStep + 1; i < totalSteps; i++) {
+      if (traceResult.trace[i].line !== current.line) {
+        setIsPlaying(false);
+        setActiveStep(i);
+        return;
+      }
+    }
+  }, [activeStep, totalSteps, traceResult]);
+
+  const prevChangeStep = useCallback(() => {
+    if (!totalSteps || !traceResult) return;
+    const current = traceResult.trace[activeStep];
+    if (!current) return;
+    for (let i = activeStep - 1; i >= 0; i--) {
+      if (traceResult.trace[i].line !== current.line) {
+        setIsPlaying(false);
+        setActiveStep(i);
+        return;
+      }
+    }
+  }, [activeStep, totalSteps, traceResult]);
 
   const togglePlay = useCallback(() => {
     if (!totalSteps) return;
@@ -708,6 +870,26 @@ export default function Trace() {
                     </button>
                     <button
                       type="button"
+                      onClick={prevChangeStep}
+                      disabled={activeStep === 0}
+                      data-testid="button-previous-change"
+                      title="Previous line change"
+                      className="flex h-8 w-8 items-center justify-center rounded-[5px] border border-[var(--ink)] bg-[#f7f1e4] transition-colors hover:bg-[#f2cc68] disabled:opacity-40"
+                    >
+                      <ChevronUp size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={nextChangeStep}
+                      disabled={activeStep === totalSteps - 1}
+                      data-testid="button-next-change"
+                      title="Next line change"
+                      className="flex h-8 w-8 items-center justify-center rounded-[5px] border border-[var(--ink)] bg-[#f7f1e4] transition-colors hover:bg-[#f2cc68] disabled:opacity-40"
+                    >
+                      <ChevronDown size={15} />
+                    </button>
+                    <button
+                      type="button"
                       onClick={jumpToEnd}
                       disabled={activeStep === totalSteps - 1}
                       data-testid="button-jump-end"
@@ -751,7 +933,7 @@ export default function Trace() {
                   <StackPanel stack={current?.stack ?? []} />
                 </div>
               </div>
-              <ArraysPanel arrays={current?.arrays ?? []} />
+              <ArraysPanel arrays={current?.arrays ?? []} highlights={current?.highlights ?? []} />
               <div className="flex items-center justify-between border-t border-[#b7aa96] bg-[#f7f1e4] px-4 py-3 font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--ink-soft)] sm:px-5">
                 <span className="flex items-center gap-2">
                   <Clock3 size={13} /> paused at line {current?.line}

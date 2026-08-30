@@ -581,6 +581,17 @@ button {
   border-radius: 10px;
 }
 
+/* Horizontal scroll affordance: fade the leading/trailing edges so it is
+   obvious there is more content to scroll to. */
+.array-scroll {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+}
+.array-scroll:hover {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .reveal,
   .loading-dot {

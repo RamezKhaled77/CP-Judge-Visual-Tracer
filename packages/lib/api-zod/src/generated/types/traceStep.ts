@@ -16,4 +16,5 @@ export interface TraceStep {
   locals: TraceLocal[];
   stack: TraceFrame[];
   arrays: TraceArray[];
+  highlights?: { array: string; index: number; expr: string }[];
 }
