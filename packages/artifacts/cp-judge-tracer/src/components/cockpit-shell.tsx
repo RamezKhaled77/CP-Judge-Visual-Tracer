@@ -14,6 +14,9 @@ import {
 
 type CockpitShellProps = {
   children: ReactNode;
+  // Position of the selected problem within the shelf. Only provided by the
+  // Workbench, where it is meaningful; the Trace player omits it because a
+  // trace has no "current specimen" concept, so the badge is hidden there.
   specimenIndex?: number;
   specimenTotal?: number;
 };
@@ -29,7 +32,7 @@ function readCollapsed(): boolean {
   }
 }
 
-export function CockpitShell({ children, specimenIndex = 1, specimenTotal = 1 }: CockpitShellProps) {
+export function CockpitShell({ children, specimenIndex, specimenTotal }: CockpitShellProps) {
   const [location] = useLocation();
   const isTrace = location === "/trace";
 
@@ -93,7 +96,7 @@ export function CockpitShell({ children, specimenIndex = 1, specimenTotal = 1 }:
 
           {/* Brand */}
           <div
-            className={`border-b border-[#3e5558] transition-all duration-200 ease-in-out ${collapsed ? "flex items-center justify-center px-0 py-6" : "px-6 pb-6 pt-7"}`}
+            className={`transition-all duration-200 ease-in-out ${collapsed ? "flex items-center justify-center px-0 py-6" : "border-b border-[#3e5558] px-6 pb-6 pt-7"}`}
           >
             <Link
               href="/"
@@ -134,8 +137,13 @@ export function CockpitShell({ children, specimenIndex = 1, specimenTotal = 1 }:
                   key={item.href}
                   href={item.href}
                   data-testid={item.testId}
-                  className={`group flex items-center rounded-[8px] py-3 text-sm font-semibold transition-colors ${collapsed ? "justify-center px-0" : "gap-3 px-3"} ${item.active ? item.activeClass : "text-[#c4d0c8] hover:bg-[#29464a]"}`}
+                  title={item.label}
+                  aria-label={item.label}
+                  className={`group relative flex items-center rounded-[8px] py-3 text-sm font-semibold transition-colors ${collapsed ? "justify-center px-0" : "gap-3 px-3"} ${item.active ? item.activeClass : "text-[#c4d0c8] hover:bg-[#29464a]"}`}
                 >
+                  {item.active && collapsed && (
+                    <span className="absolute left-1 top-1/2 h-5 w-1 -translate-y-1/2 rounded-full bg-[#18272b]/70" />
+                  )}
                   <span className="shrink-0 transition-transform duration-200 ease-in-out group-hover:scale-105">
                     <item.icon size={17} />
                   </span>
@@ -204,12 +212,15 @@ export function CockpitShell({ children, specimenIndex = 1, specimenTotal = 1 }:
                 <Gauge size={14} className="text-[#258b88]" />
                 <span>ready to inspect</span>
               </div>
-              <span
-                className="flex items-center gap-2 rounded-full border-2 border-[var(--ink)] bg-[#f2cc68] px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.1em]"
-                title={`Specimen ${specimenIndex} of ${specimenTotal}`}
-              >
-                <Activity size={12} /> {String(specimenIndex).padStart(2, "0")} / {String(specimenTotal).padStart(2, "0")}
-              </span>
+              {specimenIndex != null && specimenTotal != null && (
+                <span
+                  className="flex items-center gap-2 rounded-full border-2 border-[var(--ink)] bg-[#f2cc68] px-3 py-1.5 font-mono text-[10px] font-medium uppercase tracking-[0.1em]"
+                  title={`Specimen ${specimenIndex} of ${specimenTotal} — which problem is selected in the shelf`}
+                  data-testid="badge-specimen"
+                >
+                  <Activity size={12} /> specimen {String(specimenIndex).padStart(2, "0")} / {String(specimenTotal).padStart(2, "0")}
+                </span>
+              )}
             </div>
           </header>
           <div className="min-h-[calc(100dvh-68px)]">{children}</div>

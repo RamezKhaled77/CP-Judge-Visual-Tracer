@@ -10,4 +10,5 @@ export interface TraceInput {
   /** @minLength 1 */
   code: string;
   input: string;
+  problemId?: string;
 }

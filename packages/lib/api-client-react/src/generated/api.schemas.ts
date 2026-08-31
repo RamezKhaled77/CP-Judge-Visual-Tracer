@@ -79,6 +79,7 @@ export interface TraceInput {
   /** @minLength 1 */
   code: string;
   input: string;
+  problemId?: string;
 }
 
 export interface TraceLocal {
@@ -123,6 +124,10 @@ export interface TraceResult {
   truncated: boolean;
   /** @nullable */
   error: string | null;
+  /** @nullable */
+  problemId: string | null;
+  /** @nullable */
+  problemName: string | null;
   createdAt?: string;
 }
 

@@ -5,6 +5,7 @@ import type { TraceArray, TraceLocal, TraceResult, TraceStep } from "@workspace/
 import {
   AlertTriangle,
   ArrowLeft,
+  BookOpen,
   Braces,
   Check,
   ChevronDown,
@@ -21,15 +22,19 @@ import {
   Layers3,
   Loader2,
   Maximize2,
+  Moon,
   RefreshCw,
   Search,
   Share2,
   SkipBack,
   SkipForward,
+  Sun,
   Terminal,
   X,
 } from "lucide-react";
 import { CockpitShell } from "@/components/cockpit-shell";
+import { CollapsibleGroup } from "@/components/collapsible-group";
+import { useEditorTheme } from "@/lib/editor-theme";
 
 const SPEED_OPTIONS = [0.25, 0.5, 1, 2, 4, 8] as const;
 type PlaybackSpeed = (typeof SPEED_OPTIONS)[number];
@@ -101,6 +106,10 @@ function useIsDesktop() {
   return isDesktop;
 }
 
+const GROUP_THRESHOLD = 20;
+const CHUNK_SIZE = 5;
+const HEADER_SIZE = 36;
+
 function StepRail({
   trace,
   activeStep,
@@ -114,6 +123,8 @@ function StepRail({
   const isDesktop = useIsDesktop();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scroll, setScroll] = useState(0);
+  // Which step groups are collapsed. Absent => collapsed (default).
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<number, boolean>>({});
 
   const filteredSteps = useMemo(() => {
     if (!filter.trim()) return trace.map((item, index) => ({ item, index }));
@@ -129,9 +140,91 @@ function StepRail({
       );
   }, [trace, filter]);
 
-  // Lightweight windowing: only render the rows near the viewport so the list
-  // stays smooth even with hundreds of trace steps.
+  const filterActive = filter.trim().length > 0;
+  const useGroups = !filterActive && trace.length > GROUP_THRESHOLD;
+
+  // Chunk the (flat) timeline into groups of CHUNK_SIZE consecutive steps.
+  const groups = useMemo(() => {
+    const out: { start: number; end: number; size: number; index: number }[] = [];
+    for (let i = 0; i < trace.length; i += CHUNK_SIZE) {
+      const end = Math.min(i + CHUNK_SIZE, trace.length);
+      out.push({ start: i, end, size: end - i, index: Math.floor(i / CHUNK_SIZE) });
+    }
+    return out;
+  }, [trace]);
+
   const itemSize = isDesktop ? 72 : 121;
+
+  // When playing back, make sure the current step's group is expanded so the
+  // active step is never hidden inside a collapsed group.
+  useEffect(() => {
+    if (!useGroups) return;
+    const gi = Math.floor(activeStep / CHUNK_SIZE);
+    setCollapsedGroups((prev) => (prev[gi] ? { ...prev, [gi]: false } : prev));
+  }, [activeStep, useGroups]);
+
+  // Keep the active step in view as playback advances (works for both the flat
+  // and the grouped/windowed layouts).
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    let target: number | null = null;
+    if (useGroups) {
+      let acc = 0;
+      for (const g of groups) {
+        const open = !collapsedGroups[g.index];
+        const h = HEADER_SIZE + (open ? g.size * itemSize : 0);
+        if (g.index === Math.floor(activeStep / CHUNK_SIZE)) {
+          target = acc;
+          break;
+        }
+        acc += h;
+      }
+    } else {
+      const activeIdx = filteredSteps.findIndex(({ index }) => index === activeStep);
+      if (activeIdx < 0) return;
+      target = activeIdx * itemSize;
+    }
+    if (target == null) return;
+    const viewStart = isDesktop ? el.scrollTop : el.scrollLeft;
+    const viewSize = isDesktop ? el.clientHeight : el.clientWidth;
+    if (target < viewStart || target + itemSize > viewStart + viewSize) {
+      const t = Math.max(0, target - viewSize / 2 + itemSize / 2);
+      el.scrollTo({ [isDesktop ? "top" : "left"]: t, behavior: "smooth" });
+    }
+  }, [activeStep, useGroups, filteredSteps, groups, collapsedGroups, itemSize, isDesktop]);
+
+  // Reset scroll position whenever the filter changes the list contents.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ [isDesktop ? "top" : "left"]: 0 });
+    setScroll(0);
+  }, [filter, isDesktop]);
+
+  const renderStepButton = ({ item, index }: { item: TraceStep; index: number }) => (
+    <button
+      key={`${item.step}-${item.line}-${index}`}
+      type="button"
+      onClick={() => onSelect(index)}
+      data-testid={`button-trace-step-${item.step}`}
+      style={{ height: itemSize }}
+      className={`flex min-w-[105px] flex-col justify-center rounded-[8px] border-2 px-3 text-left transition-all lg:min-w-0 ${
+        activeStep === index
+          ? "border-[var(--ink)] bg-[#f27f6a] shadow-[3px_3px_0_var(--ink)]"
+          : "border-transparent bg-[#f1e8d8] hover:border-[var(--ink)]"
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-mono text-[10px] font-medium">#{String(item.step).padStart(2, "0")}</span>
+        <span className="font-mono text-[9px] text-[var(--ink-soft)]">L{item.line}</span>
+      </div>
+      <p className="mt-1 truncate font-mono text-[9px] uppercase tracking-[0.08em] text-[var(--ink-soft)]">
+        {item.function}
+      </p>
+    </button>
+  );
+
+  // ---- Flat (short or filtered) layout: keep the original windowed list ----
   const viewport = scrollRef.current
     ? isDesktop
       ? scrollRef.current.clientHeight
@@ -146,27 +239,33 @@ function StepRail({
   const spacerBefore = start * itemSize;
   const spacerAfter = (filteredSteps.length - end) * itemSize;
 
-  // Keep the active step in view as playback advances.
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const activeIdx = filteredSteps.findIndex(({ index }) => index === activeStep);
-    if (activeIdx < 0) return;
-    const top = activeIdx * itemSize;
-    const viewStart = isDesktop ? el.scrollTop : el.scrollLeft;
-    const viewSize = isDesktop ? el.clientHeight : el.clientWidth;
-    if (top < viewStart || top + itemSize > viewStart + viewSize) {
-      const target = Math.max(0, top - viewSize / 2 + itemSize / 2);
-      el.scrollTo({ [isDesktop ? "top" : "left"]: target, behavior: "smooth" });
-    }
-  }, [activeStep, filteredSteps, itemSize, isDesktop]);
-
-  // Reset scroll position whenever the filter changes the list contents.
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollTo({ [isDesktop ? "top" : "left"]: 0 });
-    setScroll(0);
-  }, [filter, isDesktop]);
+  // ---- Grouped layout: window over groups, each group uses the shared
+  // collapsible animation. ----
+  let groupPositions: { top: number; height: number }[] = [];
+  let groupTotal = 0;
+  if (useGroups) {
+    let acc = 0;
+    groupPositions = groups.map((g) => {
+      const open = !collapsedGroups[g.index];
+      const h = HEADER_SIZE + (open ? g.size * itemSize : 0);
+      const top = acc;
+      acc += h;
+      return { top, height: h };
+    });
+    groupTotal = acc;
+  }
+  const overscan = itemSize * 3;
+  const visibleGroups = useGroups
+    ? groups.filter((g, i) => {
+        const p = groupPositions[i];
+        return p.top + p.height > scroll - overscan && p.top < scroll + viewport + overscan;
+      })
+    : [];
+  const groupSpacerBefore = visibleGroups.length ? groupPositions[groups.indexOf(visibleGroups[0])].top : 0;
+  const lastGroup = visibleGroups.length ? visibleGroups[visibleGroups.length - 1] : null;
+  const lastIdx = lastGroup ? groups.indexOf(lastGroup) : -1;
+  const groupSpacerAfter =
+    useGroups && lastIdx >= 0 ? Math.max(0, groupTotal - (groupPositions[lastIdx].top + groupPositions[lastIdx].height)) : 0;
 
   return (
     <aside className="thin-scrollbar flex w-full shrink-0 flex-col border-b-2 border-[var(--ink)] bg-[#e9dfce] p-3 lg:w-[190px] lg:border-b-0 lg:border-r-2 lg:p-4">
@@ -201,39 +300,54 @@ function StepRail({
         onScroll={(e) => setScroll(isDesktop ? e.currentTarget.scrollTop : e.currentTarget.scrollLeft)}
         className="thin-scrollbar flex gap-2 overflow-x-auto lg:flex-1 lg:flex-col lg:overflow-y-auto"
       >
-        {filteredSteps.length === 0 ? (
+        {useGroups ? (
+          groups.length === 0 ? (
+            <div className="py-4 text-center font-mono text-[10px] text-[var(--ink-soft)]">No moments</div>
+          ) : (
+            <>
+              <div aria-hidden style={isDesktop ? { height: groupSpacerBefore } : { width: groupSpacerBefore }} />
+              {visibleGroups.map((g) => {
+                const slice = trace.slice(g.start, g.end);
+                const lines = slice.map((s) => s.line);
+                const lo = Math.min(...lines);
+                const hi = Math.max(...lines);
+                return (
+                  <CollapsibleGroup
+                    key={g.index}
+                    dataTestId={`group-steps-${g.index}`}
+                    collapsed={!collapsedGroups[g.index]}
+                    onCollapsedChange={(next) => setCollapsedGroups((prev) => ({ ...prev, [g.index]: !next }))}
+                    headerClassName={isDesktop ? "h-[36px]" : "h-[46px]"}
+                    label={
+                      <span className="flex flex-col items-start leading-tight">
+                        <span className="font-mono text-[9px] uppercase tracking-[0.12em] text-[var(--ink-soft)]">
+                          Steps {g.start}–{g.end - 1}
+                        </span>
+                        <span className="font-mono text-[8px] text-[#9a7a12]">
+                          L{lo}–L{hi}
+                        </span>
+                      </span>
+                    }
+                    summary={
+                      <>
+                        {collapsedGroups[g.index] ? "+" : "−"} {String(g.size).padStart(2, "0")}
+                      </>
+                    }
+                  >
+                    {slice.map((item, k) => renderStepButton({ item, index: g.start + k }))}
+                  </CollapsibleGroup>
+                );
+              })}
+              <div aria-hidden style={isDesktop ? { height: groupSpacerAfter } : { width: groupSpacerAfter }} />
+            </>
+          )
+        ) : filteredSteps.length === 0 ? (
           <div className="py-4 text-center font-mono text-[10px] text-[var(--ink-soft)]">No matching moments</div>
         ) : (
           <>
-            <div
-              aria-hidden
-              style={isDesktop ? { height: spacerBefore } : { width: spacerBefore }}
-            />
-            {windowItems.map(({ item, index }) => (
-              <button
-                key={`${item.step}-${item.line}-${index}`}
-                type="button"
-                onClick={() => onSelect(index)}
-                data-testid={`button-trace-step-${item.step}`}
-                className={`min-w-[105px] rounded-[8px] border-2 px-3 py-2.5 text-left transition-all lg:min-w-0 ${
-                  activeStep === index
-                    ? "border-[var(--ink)] bg-[#f27f6a] shadow-[3px_3px_0_var(--ink)]"
-                    : "border-transparent bg-[#f1e8d8] hover:border-[var(--ink)]"
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-mono text-[10px] font-medium">#{String(item.step).padStart(2, "0")}</span>
-                  <span className="font-mono text-[9px] text-[var(--ink-soft)]">L{item.line}</span>
-                </div>
-                <p className="mt-1 truncate font-mono text-[9px] uppercase tracking-[0.08em] text-[var(--ink-soft)]">
-                  {item.function}
-                </p>
-              </button>
-            ))}
-            <div
-              aria-hidden
-              style={isDesktop ? { height: spacerAfter } : { width: spacerAfter }}
-            />
+            <div aria-hidden style={isDesktop ? { height: spacerBefore } : { width: spacerBefore }} />
+            {windowItems.map(({ item, index }) => renderStepButton({ item, index }))}
+            <div aria-hidden style={isDesktop ? { height: spacerAfter } : { width: spacerAfter }} />
           </>
         )}
       </div>
@@ -241,9 +355,47 @@ function StepRail({
   );
 }
 
-function SourcePanel({ source, activeLine }: { source: string; activeLine: number }) {
+function SourcePanel({
+  source,
+  activeLine,
+  problemName,
+}: {
+  source: string;
+  activeLine: number;
+  problemName?: string | null;
+}) {
   const lines = source.split("\n");
   const lineRefs = useRef<Record<number, HTMLDivElement | null>>({});
+  const { theme, toggle } = useEditorTheme();
+  const isDark = theme === "dark";
+
+  const chrome = isDark
+    ? {
+        section: "bg-[#24373a]",
+        border: "border-[#496264]",
+        barText: "text-[#c4d0c8]",
+        icon: "text-[#63c9c2]",
+        muted: "text-[#789492]",
+        active: "bg-[#344e51] text-[#fff4df]",
+        lineText: "text-[#bed0c4]",
+        lineNumber: "text-[#6b8684]",
+        btnBorder: "border-[#496264]",
+        btnText: "text-[#a4bdb6]",
+        btnHover: "hover:border-[#63c9c2] hover:text-[#63c9c2]",
+      }
+    : {
+        section: "bg-[#f6f8fa]",
+        border: "border-[#d0d7de]",
+        barText: "text-[#57606a]",
+        icon: "text-[#0b6e6a]",
+        muted: "text-[#57606a]",
+        active: "bg-[#eaeef0] text-[#1f2328]",
+        lineText: "text-[#24292f]",
+        lineNumber: "text-[#6a737d]",
+        btnBorder: "border-[#d0d7de]",
+        btnText: "text-[#57606a]",
+        btnHover: "hover:border-[#0b6e6a] hover:text-[#0b6e6a]",
+      };
 
   useEffect(() => {
     const activeEl = lineRefs.current[activeLine];
@@ -253,13 +405,35 @@ function SourcePanel({ source, activeLine }: { source: string; activeLine: numbe
   }, [activeLine]);
 
   return (
-    <section className="flex min-h-[405px] min-w-0 flex-1 flex-col bg-[#24373a]">
-      <div className="flex items-center justify-between border-b border-[#496264] px-4 py-3 text-[#c4d0c8]">
-        <div className="flex items-center gap-2">
-          <Terminal size={15} className="text-[#63c9c2]" />
-          <span className="font-mono text-[10px] uppercase tracking-[0.15em]">captured source</span>
+    <section className={`flex min-h-[405px] min-w-0 flex-1 flex-col ${chrome.section}`}>
+      <div className={`flex items-center justify-between gap-3 border-b px-4 py-3 ${chrome.border} ${chrome.barText}`}>
+        <div className="flex min-w-0 items-center gap-2">
+          <Terminal size={15} className={chrome.icon} />
+          <span className="hidden font-mono text-[10px] uppercase tracking-[0.15em] sm:inline">captured source</span>
+          {problemName && (
+            <span
+              className={`flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 font-mono text-[10px] font-semibold ${isDark ? "border-[#63c9c2]/40 bg-[#63c9c2]/15 text-[#cdeeea]" : "border-[#0b6e6a]/30 bg-[#0b6e6a]/10 text-[#0b6e6a]"}`}
+              title="Problem being traced"
+              data-testid="text-source-problem"
+            >
+              <BookOpen size={11} className={chrome.icon} />
+              <span className="truncate">{problemName}</span>
+            </span>
+          )}
         </div>
-        <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-[#789492]">read only</span>
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-[9px] uppercase tracking-[0.1em]">{chrome.muted}</span>
+          <button
+            type="button"
+            onClick={toggle}
+            title={isDark ? "Switch to light theme" : "Switch to dark theme"}
+            aria-label="Toggle source view theme"
+            data-testid="button-toggle-source-theme"
+            className={`flex items-center rounded border px-1.5 py-1 transition-colors ${chrome.btnBorder} ${chrome.btnText} ${chrome.btnHover}`}
+          >
+            {isDark ? <Sun size={12} /> : <Moon size={12} />}
+          </button>
+        </div>
       </div>
       <div
         className="thin-scrollbar flex-1 overflow-auto py-4 font-mono text-[12px] leading-[1.75]"
@@ -274,11 +448,9 @@ function SourcePanel({ source, activeLine }: { source: string; activeLine: numbe
               ref={(el) => {
                 lineRefs.current[lineNumber] = el;
               }}
-              className={`flex min-w-max px-4 transition-colors ${
-                isActive ? "active-line bg-[#344e51] text-[#fff4df]" : "text-[#bed0c4]"
-              }`}
+              className={`flex min-w-max px-4 transition-colors ${isActive ? `active-line ${chrome.active}` : chrome.lineText}`}
             >
-              <span className="line-number inline-block w-8 shrink-0 pr-3 text-right text-[#6b8684]">{lineNumber}</span>
+              <span className={`line-number inline-block w-8 shrink-0 pr-3 text-right ${chrome.lineNumber}`}>{lineNumber}</span>
               <span className="whitespace-pre">{line || " "}</span>
             </div>
           );
@@ -759,6 +931,15 @@ export default function Trace() {
                 <Maximize2 size={11} /> trace truncated
               </span>
             )}
+            {traceResult.problemName && (
+              <span
+                className="flex items-center gap-1.5 rounded-full border-2 border-[var(--ink)] bg-[#f7f1e4] px-3 py-1.5 font-mono text-[9px] uppercase tracking-[0.1em]"
+                title="Problem being traced"
+                data-testid="text-trace-problem"
+              >
+                <BookOpen size={12} className="text-[#258b88]" /> {traceResult.problemName}
+              </span>
+            )}
             <span className="rounded-full border-2 border-[var(--ink)] bg-[#63c9c2] px-3 py-1.5 font-mono text-[9px] uppercase tracking-[0.1em]">
               {traceResult.trace.length} steps
             </span>
@@ -926,7 +1107,7 @@ export default function Trace() {
               </div>
 
               <div className="flex min-h-0 flex-col xl:flex-row">
-                <SourcePanel source={source} activeLine={current?.line ?? 0} />
+                <SourcePanel source={source} activeLine={current?.line ?? 0} problemName={traceResult.problemName} />
                 <div className="grid min-w-0 flex-1 grid-cols-1 bg-[#f7f1e4] sm:grid-cols-2 xl:block xl:w-[370px] xl:flex-none">
                   <LocalsPanel
                     locals={current?.locals ?? []}

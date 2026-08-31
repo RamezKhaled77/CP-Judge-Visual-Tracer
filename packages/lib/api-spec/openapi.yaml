@@ -290,6 +290,7 @@ components:
       properties:
         code: { type: string, minLength: 1 }
         input: { type: string }
+        problemId: { type: string }
       required: [code, input]
     TraceLocal:
       type: object
@@ -354,6 +355,8 @@ components:
         source: { type: string }
         truncated: { type: boolean }
         error: { type: ["string", "null"] }
+        problemId: { type: ["string", "null"] }
+        problemName: { type: ["string", "null"] }
         createdAt: { type: string }
-      required: [id, trace, source, truncated, error]
+      required: [id, trace, source, truncated, error, problemId, problemName]
 
