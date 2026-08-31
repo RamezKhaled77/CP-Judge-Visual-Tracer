@@ -91,7 +91,8 @@ export const CreateSubmissionResponse = zod.object({
 
 export const CreateTraceBody = zod.object({
   "code": zod.string().min(1),
-  "input": zod.string()
+  "input": zod.string(),
+  "problemId": zod.string().optional()
 })
 
 export const CreateTraceResponse = zod.object({
@@ -124,6 +125,8 @@ export const CreateTraceResponse = zod.object({
   "source": zod.string(),
   "truncated": zod.boolean(),
   "error": zod.string().nullable(),
+  "problemId": zod.string().nullable(),
+  "problemName": zod.string().nullable(),
   "createdAt": zod.string().optional()
 })
 
@@ -165,6 +168,8 @@ export const GetTraceResponse = zod.object({
   "source": zod.string(),
   "truncated": zod.boolean(),
   "error": zod.string().nullable(),
+  "problemId": zod.string().nullable(),
+  "problemName": zod.string().nullable(),
   "createdAt": zod.string().optional()
 })
 

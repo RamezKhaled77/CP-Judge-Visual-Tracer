@@ -42,6 +42,8 @@ export async function saveTrace(data: {
   trace: TraceStep[];
   truncated: boolean;
   error: string | null;
+  problemId?: string | null;
+  problemName?: string | null;
 }): Promise<TraceResult> {
   const id = `tr_${Date.now().toString(36)}_${randomUUID().slice(0, 8)}`;
   const createdAt = new Date().toISOString();
@@ -51,6 +53,8 @@ export async function saveTrace(data: {
     trace: data.trace,
     truncated: data.truncated,
     error: data.error,
+    problemId: data.problemId ?? null,
+    problemName: data.problemName ?? null,
     createdAt,
   };
 
@@ -72,6 +76,8 @@ export async function saveTrace(data: {
           trace: data.trace,
           truncated: data.truncated,
           error: data.error,
+          problemId: traceResult.problemId,
+          problemName: traceResult.problemName,
         },
         createdAt: new Date(),
       });
@@ -107,6 +113,8 @@ export async function getTrace(id: string): Promise<TraceResult | null> {
       trace: row.result.trace ?? [],
       truncated: Boolean(row.result.truncated),
       error: row.result.error ?? null,
+      problemId: row.result.problemId ?? null,
+      problemName: row.result.problemName ?? null,
       createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt),
     };
     inMemoryTraces.set(id, result);
